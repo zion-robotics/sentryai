@@ -8,6 +8,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.use((req, res, next) => {
+  if (req.method === 'POST') {
+    console.log(`📥 Incoming ${req.method} ${req.path}`, JSON.stringify(req.body, null, 2));
+  }
+  next();
+});
+
 app.get("/", (req, res) => res.json({ status: "SentryAI backend running 🚀" }));
 app.use("/webhook", webhookRoutes);
 
