@@ -30,7 +30,7 @@ Analyze this message and return ONLY a JSON object with this exact structure:
 }
 
 Rules:
-- hot = customer is ready to buy, asking for payment details, or confirming order
+- hot = customer is ready to buy, asking for payment details, account number, or saying "I want to order", "send me the link", "how do I pay", "I go buy", "I wan pay"
 - warm = customer is interested but still asking questions
 - cold = just browsing, greeting, or casual chat
 - Detect Nigerian languages correctly

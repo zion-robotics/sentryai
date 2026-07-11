@@ -3,6 +3,7 @@ const router = express.Router();
 const { classifyMessage, generateReply } = require("../services/qwen");
 const supabase = require("../services/supabase");
 const { sendTelegram, sendWhatsApp } = require("../services/messenger");
+const { createPaymentLink } = require("../services/paystack");
 
 // ── Shared AI handler ─────────────────────────────────────────────────────────
 async function handleMessage({ platform, customerId, customerName, text, rawBody }) {
@@ -76,18 +77,52 @@ async function handleMessage({ platform, customerId, customerName, text, rawBody
     .eq("id", businessId)
     .single();
 
-  const reply = await generateReply(text, business, formattedHistory);
+ // ── Buying intent → auto payment link ─────────────────────────────────────
+  let paymentLink = null;
 
+  if (
+    classification.intent === "buying" ||
+    classification.lead_score === "hot"
+  ) {
+    try {
+      paymentLink = await createPaymentLink({
+        email: "customer@sentryai.com",
+        amount: 12500,
+        name: customerName,
+        description: `Order from ${business.name}`
+      });
+      console.log("💳 Payment link generated:", paymentLink);
+
+      await supabase.from("leads").insert({
+        conversation_id: conv.id,
+        business_id: businessId,
+        score: "hot",
+        payment_link: paymentLink,
+        payment_status: "pending"
+      });
+    } catch (err) {
+      console.error("Paystack error:", err.message);
+    }
+  }
+
+  // ── Generate reply with payment link context ───────────────────────────────
+  const messageToProcess = paymentLink
+    ? `${text}\n\n[AGENT INSTRUCTION: Customer is ready to pay. You MUST include this Paystack payment link in your reply: ${paymentLink} — Tell them to click it to pay securely. Do NOT mention bank transfer. Keep reply short and casual.]`
+    : text;
+
+  const reply = await generateReply(messageToProcess, business, formattedHistory);
+  const finalReply = reply;
+  // ── Save outbound message ──────────────────────────────────────────────────
   await supabase.from("messages").insert({
     conversation_id: conv.id,
     platform,
     direction: "outbound",
-    content: reply,
+    content: finalReply,
     message_type: "text",
     sender: "SentryAI"
   });
 
-  return { reply, conv };
+  return { reply: finalReply, conv };
 }
 
 // ── Telegram ──────────────────────────────────────────────────────────────────
