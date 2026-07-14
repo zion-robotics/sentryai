@@ -1,0 +1,14 @@
+{
+  "name": "SentryAI",
+  "forwardPorts": [3000, 5173],
+  "portsAttributes": {
+    "3000": {
+      "visibility": "public",
+      "label": "Backend API"
+    },
+    "5173": {
+      "visibility": "public",
+      "label": "Frontend"
+    }
+  }
+}
