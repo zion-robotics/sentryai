@@ -4,6 +4,7 @@ const { classifyMessage, generateReply } = require("../services/qwen");
 const supabase = require("../services/supabase");
 const { sendTelegram, sendWhatsApp } = require("../services/messenger");
 const { createPaymentLink } = require("../services/paystack");
+const { scheduleFollowUp } = require("../services/followup");
 
 // ── Shared AI handler ─────────────────────────────────────────────────────────
 async function handleMessage({ platform, customerId, customerName, text, rawBody }) {
@@ -51,13 +52,19 @@ async function handleMessage({ platform, customerId, customerName, text, rawBody
   const classification = await classifyMessage(text);
   console.log("Classification:", classification);
 
-  await supabase
+ await supabase
     .from("conversations")
     .update({
       lead_score: classification.lead_score,
       last_message_at: new Date().toISOString()
     })
     .eq("id", conv.id);
+
+  // Schedule follow-up for warm leads
+  if (classification.lead_score === "warm") {
+    const { scheduleFollowUp } = require("../services/followup");
+    await scheduleFollowUp(conv.id, businessId);
+  }
 
   const { data: history } = await supabase
     .from("messages")
