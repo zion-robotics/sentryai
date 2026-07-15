@@ -3,8 +3,19 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
 import {
   MessageSquare, Flame, Activity, DollarSign,
   Radio, Settings, Search, Send, Zap,
-  UserCheck, Clock, RefreshCw, Bell, Sun, Moon
+  UserCheck, Clock, RefreshCw, Bell, Sun, Moon,
+  ChevronDown, ChevronsRight, ChevronsLeft
 } from "lucide-react"
+
+function useWindowWidth() {
+  const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1280)
+  useEffect(() => {
+    const onResize = () => setW(window.innerWidth)
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [])
+  return w
+}
 
 // ── Font injection (Manrope / Inter / IBM Plex Mono) ───────────────────────────
 function useFonts() {
@@ -238,7 +249,7 @@ function Dot({ color, glow = true }: { color: string; glow?: boolean }) {
 }
 
 // ── Inbox ─────────────────────────────────────────────────────────────────────
-function Inbox() {
+function Inbox({ showLeadPanel = true }: { showLeadPanel?: boolean }) {
   const { t } = useTheme()
   const API = import.meta.env.VITE_API_URL
   const [conversations, setConversations] = useState<any[]>([])
@@ -246,6 +257,41 @@ function Inbox() {
   const [selId, setSelId] = useState<string | null>(null)
   const [filter, setFilter] = useState("all")
   const [loading, setLoading] = useState(true)
+  const scrollRef = React.useRef<HTMLDivElement>(null)
+  const prevLenRef = React.useRef(0)
+  const [atBottom, setAtBottom] = useState(true)
+  const [newCount, setNewCount] = useState(0)
+
+  function scrollToBottom(smooth = true) {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" })
+    setNewCount(0)
+    setAtBottom(true)
+  }
+
+  function handleScroll() {
+    const el = scrollRef.current
+    if (!el) return
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+    const nowAtBottom = distance < 60
+    setAtBottom(nowAtBottom)
+    if (nowAtBottom) setNewCount(0)
+  }
+
+  useEffect(() => {
+    const grew = messages.length - prevLenRef.current
+    if (grew > 0) {
+      if (atBottom) {
+        requestAnimationFrame(() => scrollToBottom(prevLenRef.current === 0))
+      } else {
+        setNewCount(c => c + grew)
+      }
+    }
+    prevLenRef.current = messages.length
+  }, [messages]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { setNewCount(0); setAtBottom(true) }, [selId])
 
   async function loadConversations() {
     try {
@@ -406,33 +452,58 @@ function Inbox() {
               </div>
             </div>
 
-            <div style={{ flex: 1, overflowY: "auto" as const, padding: "20px 24px", display: "flex", flexDirection: "column", gap: 10 }}>
-              {messages.map((msg: any) => (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 26 }}
-                  style={{ display: "flex", justifyContent: msg.direction === "inbound" ? "flex-start" : "flex-end" }}
-                >
-                  <div style={{
-                    maxWidth: "65%",
-                    background: msg.direction === "inbound" ? t.elevated : `linear-gradient(135deg, ${t.teal}, ${t.tealDeep})`,
-                    borderRadius: msg.direction === "inbound" ? "16px 16px 16px 4px" : "16px 16px 4px 16px",
-                    padding: "10px 14px", fontSize: 13, lineHeight: 1.5,
-                    color: msg.direction === "inbound" ? t.ink : "#fff",
-                    border: msg.direction === "inbound" ? `1px solid ${t.hairline}` : "none",
-                    fontFamily: FONT_BODY,
-                  }}>
-                    {msg.content}
+            <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+              <div ref={scrollRef} onScroll={handleScroll} style={{ height: "100%", overflowY: "auto" as const, padding: "20px 24px", display: "flex", flexDirection: "column", gap: 10 }}>
+                {messages.map((msg: any) => (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 26 }}
+                    style={{ display: "flex", justifyContent: msg.direction === "inbound" ? "flex-start" : "flex-end" }}
+                  >
+                    <div style={{
+                      maxWidth: "65%",
+                      background: msg.direction === "inbound" ? t.elevated : `linear-gradient(135deg, ${t.teal}, ${t.tealDeep})`,
+                      borderRadius: msg.direction === "inbound" ? "16px 16px 16px 4px" : "16px 16px 4px 16px",
+                      padding: "10px 14px", fontSize: 13, lineHeight: 1.5,
+                      color: msg.direction === "inbound" ? t.ink : "#fff",
+                      border: msg.direction === "inbound" ? `1px solid ${t.hairline}` : "none",
+                      fontFamily: FONT_BODY,
+                    }}>
+                      {msg.content}
+                    </div>
+                  </motion.div>
+                ))}
+                {messages.length === 0 && (
+                  <div style={{ textAlign: "center" as const, color: t.faint, fontSize: 13, marginTop: 40, fontFamily: FONT_BODY }}>
+                    No messages in this conversation yet
                   </div>
-                </motion.div>
-              ))}
-              {messages.length === 0 && (
-                <div style={{ textAlign: "center" as const, color: t.faint, fontSize: 13, marginTop: 40, fontFamily: FONT_BODY }}>
-                  No messages in this conversation yet
-                </div>
-              )}
+                )}
+              </div>
+
+              <AnimatePresence>
+                {!atBottom && messages.length > 0 && (
+                  <motion.button
+                    key="jump-to-bottom"
+                    initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                    whileTap={{ scale: 0.92 }}
+                    onClick={() => scrollToBottom(true)}
+                    aria-label={newCount > 0 ? `${newCount} new messages, jump to latest` : "Jump to latest message"}
+                    style={{
+                      position: "absolute", bottom: 16, right: 20, border: "none", cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 6, padding: newCount > 0 ? "8px 14px" : "10px",
+                      borderRadius: 30, background: `linear-gradient(135deg, ${t.teal}, ${t.tealDeep})`,
+                      color: "#fff", boxShadow: `0 6px 18px ${t.tealSoft}`, fontFamily: FONT_BODY,
+                    }}
+                  >
+                    <ChevronDown size={16} aria-hidden="true" />
+                    {newCount > 0 && <span style={{ fontSize: 12, fontWeight: 700 }}>{newCount} new</span>}
+                  </motion.button>
+                )}
+              </AnimatePresence>
             </div>
 
             <div style={{ padding: "14px 20px", borderTop: `1px solid ${t.hairline}` }}>
@@ -452,7 +523,7 @@ function Inbox() {
       </div>
 
       {/* Lead panel */}
-      {active && (
+      {active && showLeadPanel && (
         <div style={{ width: 240, flexShrink: 0, padding: "20px 16px", overflowY: "auto" as const, display: "flex", flexDirection: "column", gap: 20, borderRadius: 18, ...glass(t) }}>
           <div>
             <p style={{ fontSize: 10, fontWeight: 700, color: t.faint, textTransform: "uppercase" as const, letterSpacing: 1, marginBottom: 12, fontFamily: FONT_BODY }}>Lead Info</p>
@@ -500,7 +571,7 @@ function Pipeline() {
     { key: "cold", label: "Cold Leads", color: t.blue,  leads: PIPELINE.cold },
   ]
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, height: "100%", overflow: "hidden" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, height: "100%", overflow: "auto" }}>
       {cols.map(col => (
         <div key={col.key} style={{ borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", ...glass(t) }}>
           <div style={{ padding: "14px 16px", borderBottom: `1px solid ${t.hairline}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -584,7 +655,7 @@ function Revenue() {
   ]
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 14 }}>
         {cards.map((c, i) => (
           <motion.div
             key={i}
@@ -640,7 +711,10 @@ const NAV = [
 function DashboardShell() {
   const { t } = useTheme()
   const [active, setActive] = useState("inbox")
+  const [navOpen, setNavOpen] = useState(false)
   const reduce = useReducedMotion()
+  const winW = useWindowWidth()
+  const showLeadPanel = winW >= 1040
 
   const STATS = [
     { label: "Messages",  value: "89",       color: t.ink   },
@@ -652,7 +726,7 @@ function DashboardShell() {
   ]
 
   const content: Record<string, React.ReactNode> = {
-    inbox:     <Inbox />,
+    inbox:     <Inbox showLeadPanel={showLeadPanel} />,
     pipeline:  <Pipeline />,
     activity:  <ActivityLog />,
     revenue:   <Revenue />,
@@ -677,45 +751,76 @@ function DashboardShell() {
       <MeshBackground />
 
       {/* Sidebar */}
-      <aside style={{ width: 64, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", padding: "14px 0", gap: 6, position: "relative", zIndex: 1, margin: 10, borderRadius: 20, ...glass(t) }}>
-        <div style={{ width: 34, height: 34, borderRadius: 10, background: `linear-gradient(135deg, ${t.teal}, ${t.tealDeep})`, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16, flexShrink: 0, boxShadow: `0 4px 12px ${t.tealSoft}` }}>
-          <Zap size={17} color="#fff" fill="#fff" aria-hidden="true" />
+      <motion.aside
+        animate={{ width: navOpen ? 208 : 64 }}
+        transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 320, damping: 32 }}
+        style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: navOpen ? "stretch" : "center", padding: "14px 10px", gap: 6, position: "relative", zIndex: 2, margin: 10, borderRadius: 20, overflow: "hidden", ...glass(t) }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, paddingLeft: navOpen ? 4 : 0, justifyContent: navOpen ? "flex-start" : "center" }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: `linear-gradient(135deg, ${t.teal}, ${t.tealDeep})`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: `0 4px 12px ${t.tealSoft}` }}>
+            <Zap size={17} color="#fff" fill="#fff" aria-hidden="true" />
+          </div>
+          {navOpen && <span style={{ fontSize: 14, fontWeight: 800, color: t.ink, fontFamily: FONT_DISPLAY, whiteSpace: "nowrap" }}>SentryAI</span>}
         </div>
+
         {NAV.map(({ id, Icon, label, badge }) => {
           const isA = active === id
           return (
-            <div key={id} style={{ position: "relative", width: "100%", display: "flex", justifyContent: "center" }}>
-              <motion.button
-                whileTap={{ scale: 0.92 }}
-                onClick={() => setActive(id)}
-                title={label}
-                aria-label={label}
-                aria-current={isA ? "page" : undefined}
-                style={{
-                  width: 44, height: 44, borderRadius: 12, border: "none", cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  background: t.bg, color: isA ? t.teal : t.muted,
-                  boxShadow: isA ? neu(t, true) : "none",
-                  transition: "color .15s", position: "relative",
-                }}
-              >
+            <motion.button
+              key={id}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => setActive(id)}
+              title={label}
+              aria-label={label}
+              aria-current={isA ? "page" : undefined}
+              style={{
+                width: "100%", minHeight: 44, borderRadius: 12, border: "none", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: navOpen ? "flex-start" : "center",
+                gap: 12, padding: navOpen ? "0 12px" : 0,
+                background: t.bg, color: isA ? t.teal : t.muted,
+                boxShadow: isA ? neu(t, true) : "none",
+                transition: "color .15s", position: "relative", flexShrink: 0,
+              }}
+            >
+              <span style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Icon size={18} aria-hidden="true" />
                 {badge && (
-                  <span style={{ position: "absolute", top: 2, right: 2, width: 15, height: 15, borderRadius: "50%", background: t.red, fontSize: 8, fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_MONO }}>
+                  <span style={{ position: "absolute", top: -6, right: -8, width: 15, height: 15, borderRadius: "50%", background: t.red, fontSize: 8, fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_MONO }}>
                     {badge > 9 ? "9+" : badge}
                   </span>
                 )}
-              </motion.button>
-            </div>
+              </span>
+              {navOpen && <span style={{ fontSize: 13, fontWeight: 600, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{label}</span>}
+            </motion.button>
           )
         })}
-        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 10, paddingBottom: 8 }}>
-          <ThemeToggle />
-          <button aria-label="Notifications" style={{ background: "none", border: "none", cursor: "pointer", padding: 8 }}><Bell size={16} color={t.faint} /></button>
-          <button aria-label="Refresh" style={{ background: "none", border: "none", cursor: "pointer", padding: 8 }}><RefreshCw size={14} color={t.faint} /></button>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: t.green, boxShadow: `0 0 8px ${t.green}`, marginTop: 2 }} />
+
+        <div style={{ marginTop: "auto", display: "flex", flexDirection: navOpen ? "column" : "column", alignItems: navOpen ? "stretch" : "center", gap: 10, paddingTop: 8 }}>
+          <motion.button
+            whileTap={{ scale: 0.92 }}
+            onClick={() => setNavOpen(o => !o)}
+            aria-label={navOpen ? "Collapse navigation" : "Expand navigation"}
+            title={navOpen ? "Collapse" : "Expand"}
+            style={{
+              width: navOpen ? "100%" : 40, height: 40, borderRadius: 10, border: "none", cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: navOpen ? "flex-start" : "center",
+              gap: 10, padding: navOpen ? "0 12px" : 0, background: t.bg, boxShadow: neu(t, false), color: t.muted, alignSelf: navOpen ? "stretch" : "center",
+            }}
+          >
+            {navOpen ? <ChevronsLeft size={16} aria-hidden="true" /> : <ChevronsRight size={16} aria-hidden="true" />}
+            {navOpen && <span style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_BODY }}>Collapse</span>}
+          </motion.button>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: navOpen ? "space-between" : "center", flexDirection: navOpen ? "row" : "column", gap: 10, width: navOpen ? "100%" : "auto", paddingLeft: navOpen ? 4 : 0 }}>
+            <ThemeToggle />
+            <div style={{ display: "flex", gap: 6 }}>
+              <button aria-label="Notifications" style={{ background: "none", border: "none", cursor: "pointer", padding: 8 }}><Bell size={16} color={t.faint} /></button>
+              <button aria-label="Refresh" style={{ background: "none", border: "none", cursor: "pointer", padding: 8 }}><RefreshCw size={14} color={t.faint} /></button>
+            </div>
+          </div>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: t.green, boxShadow: `0 0 8px ${t.green}`, alignSelf: navOpen ? "flex-start" : "center", marginLeft: navOpen ? 4 : 0 }} />
         </div>
-      </aside>
+      </motion.aside>
 
       {/* Main */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative", zIndex: 1, margin: "10px 10px 10px 0", gap: 10 }}>
@@ -758,7 +863,11 @@ function DashboardShell() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
               transition={{ duration: reduce ? 0 : 0.2 }}
-              style={{ height: "100%", overflow: active === "inbox" ? "hidden" : "auto", padding: active === "inbox" ? 0 : 6 }}
+              style={
+                active === "inbox"
+                  ? { height: "100%", overflow: "hidden" }
+                  : { height: "100%", overflow: "auto", borderRadius: 18, padding: 24, ...glass(t) }
+              }
             >
               {content[active]}
             </motion.div>

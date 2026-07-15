@@ -20,6 +20,25 @@ app.get("/", (req, res) => res.json({ status: "SentryAI backend running 🚀" })
 app.use("/webhook", webhookRoutes);
 app.use("/api", apiRoutes);
 
+app.get("/auth/gmail", (req, res) => {
+  const { getAuthUrl } = require("./services/gmail");
+  res.redirect(getAuthUrl());
+});
+
+app.get("/auth/gmail/callback", async (req, res) => {
+  const { getTokens } = require("./services/gmail");
+  try {
+    const tokens = await getTokens(req.query.code);
+    res.send(`
+      <h2>✅ Gmail connected!</h2>
+      <p>Add this to your .env:</p>
+      <pre>GMAIL_REFRESH_TOKEN=${tokens.refresh_token}</pre>
+    `);
+  } catch (err) {
+    res.status(500).send("Auth failed: " + err.message);
+  }
+});
+
 // Run follow-up scheduler every hour
 processFollowUps();
 setInterval(processFollowUps, 60 * 60 * 1000);
