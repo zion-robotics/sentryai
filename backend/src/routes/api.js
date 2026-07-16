@@ -230,4 +230,26 @@ router.post("/conversations/:id/send", async (req, res) => {
   }
 });
 
+const { sendDailyReport, generateDailyReport } = require("../services/report");
+
+// Get today's report data (for dashboard display)
+router.get("/report/:businessId", async (req, res) => {
+  try {
+    const report = await generateDailyReport(req.params.businessId);
+    res.json(report);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Manually trigger sending the report
+router.post("/report/:businessId/send", async (req, res) => {
+  try {
+    const result = await sendDailyReport(req.params.businessId);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

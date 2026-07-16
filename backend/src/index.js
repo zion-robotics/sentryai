@@ -6,6 +6,23 @@ const webhookRoutes = require("./routes/webhook");
 const apiRoutes = require("./routes/api");
 const { processFollowUps } = require("./services/followup");
 const { getAuthUrl, getTokens } = require("./services/gmail");
+const { sendDailyReport } = require("./services/report");
+
+function scheduleMorningReport() {
+  const now = new Date();
+  const next8am = new Date();
+  next8am.setHours(8, 0, 0, 0);
+  if (now > next8am) next8am.setDate(next8am.getDate() + 1);
+
+  const msUntil8am = next8am - now;
+
+  setTimeout(() => {
+    sendDailyReport(process.env.DEFAULT_BUSINESS_ID);
+    setInterval(() => sendDailyReport(process.env.DEFAULT_BUSINESS_ID), 24 * 60 * 60 * 1000);
+  }, msUntil8am);
+
+  console.log(`📊 Morning report scheduled for ${next8am.toLocaleString()}`);
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -53,10 +70,10 @@ async function autoProcessEmails() {
 app.listen(PORT, () => {
   console.log(`SentryAI running on port ${PORT}`);
 
-  // Run follow-up scheduler every hour
   processFollowUps();
   setInterval(processFollowUps, 60 * 60 * 1000);
 
-  // Run email check every 5 minutes
   setInterval(autoProcessEmails, 5 * 60 * 1000);
+
+  scheduleMorningReport();
 });
