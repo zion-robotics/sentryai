@@ -43,5 +43,19 @@ app.get("/auth/gmail/callback", async (req, res) => {
 processFollowUps();
 setInterval(processFollowUps, 60 * 60 * 1000);
 
+const { getUnreadEmails } = require("./services/gmail");
+
+async function autoProcessEmails() {
+  try {
+    const res = await fetch(`http://localhost:${PORT}/api/gmail/process`, { method: "POST" });
+    const data = await res.json();
+    if (data.processed > 0) console.log(`📧 Auto-processed ${data.processed} emails`);
+  } catch (err) {
+    console.error("Email auto-process error:", err.message);
+  }
+}
+
+setInterval(autoProcessEmails, 5 * 60 * 1000);
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`SentryAI running on port ${PORT}`));

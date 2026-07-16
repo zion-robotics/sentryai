@@ -6,7 +6,6 @@ const oauth2Client = new google.auth.OAuth2(
   process.env.GMAIL_REDIRECT_URI
 );
 
-// Set refresh token if we have one
 if (process.env.GMAIL_REFRESH_TOKEN) {
   oauth2Client.setCredentials({
     refresh_token: process.env.GMAIL_REFRESH_TOKEN
@@ -55,19 +54,23 @@ async function sendEmail(to, subject, body) {
 async function getUnreadEmails() {
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
+  console.log("📧 Listing unread emails...");
   const { data } = await gmail.users.messages.list({
     userId: "me",
     q: "is:unread in:inbox",
     maxResults: 10
   });
 
+  console.log("📧 Found messages:", data.messages?.length || 0);
   if (!data.messages) return [];
 
-  const emails = await Promise.all(
-    data.messages.map(async (msg) => {
+  const emails = [];
+  for (const msg of data.messages) {
+    console.log("📧 Fetching message ID:", msg.id);
+    try {
       const { data: full } = await gmail.users.messages.get({
         userId: "me",
-        messageId: msg.id,
+        id: msg.id,
         format: "full"
       });
 
@@ -76,14 +79,18 @@ async function getUnreadEmails() {
       const subject = headers.find(h => h.name === "Subject")?.value || ""
       const body    = extractBody(full.payload)
 
-      return { id: msg.id, from, subject, body }
-    })
-  );
+      emails.push({ id: msg.id, from, subject, body });
+    } catch (err) {
+      console.error("📧 Error fetching message", msg.id, ":", err.message);
+    }
+  }
 
+  console.log("📧 Emails fetched:", emails.length);
   return emails;
 }
 
 async function markAsRead(messageId) {
+  console.log("📧 Marking as read:", messageId);
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
   await gmail.users.messages.modify({
     userId: "me",
