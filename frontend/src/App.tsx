@@ -17,7 +17,6 @@ function useWindowWidth() {
   return w
 }
 
-// ── Font injection (Manrope / Inter / IBM Plex Mono) ───────────────────────────
 function useFonts() {
   useEffect(() => {
     if (document.getElementById("sentryai-fonts")) return
@@ -33,7 +32,6 @@ const FONT_DISPLAY = "'Manrope', sans-serif"
 const FONT_BODY = "'Inter', sans-serif"
 const FONT_MONO = "'IBM Plex Mono', monospace"
 
-// ── Theme tokens ────────────────────────────────────────────────────────────────
 const THEMES = {
   light: {
     mode: "light" as const,
@@ -87,7 +85,6 @@ const ThemeCtx = createContext<{ t: Theme; mode: "light" | "dark"; toggle: () =>
 })
 const useTheme = () => useContext(ThemeCtx)
 
-// Neumorphic soft-shadow helper (used sparingly: toggle, filter pills, nav icons)
 function neu(t: Theme, pressed = false) {
   if (pressed) {
     return t.mode === "light"
@@ -145,7 +142,6 @@ const ACTIVITY = [
   { time: "3h ago",  icon: "closed",  text: "Kemi marked as Closed",             sub: "Payment confirmed, delivery scheduled" },
 ]
 
-// ── Animated mesh background ───────────────────────────────────────────────────
 function MeshBackground() {
   const { t } = useTheme()
   const reduce = useReducedMotion()
@@ -165,7 +161,6 @@ function MeshBackground() {
   )
 }
 
-// ── Theme toggle (signature neumorphic element) ────────────────────────────────
 function ThemeToggle() {
   const { t, mode, toggle } = useTheme()
   const reduce = useReducedMotion()
@@ -198,7 +193,6 @@ function ThemeToggle() {
   )
 }
 
-// ── Small components ──────────────────────────────────────────────────────────
 function PBadge({ platform }: { platform: string }) {
   const p = P[platform]
   if (!p) return null
@@ -257,6 +251,8 @@ function Inbox({ showLeadPanel = true }: { showLeadPanel?: boolean }) {
   const [selId, setSelId] = useState<string | null>(null)
   const [filter, setFilter] = useState("all")
   const [loading, setLoading] = useState(true)
+  const [draftMessage, setDraftMessage] = useState("")
+  const [sending, setSending] = useState(false)
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const prevLenRef = React.useRef(0)
   const [atBottom, setAtBottom] = useState(true)
@@ -293,12 +289,12 @@ function Inbox({ showLeadPanel = true }: { showLeadPanel?: boolean }) {
 
   useEffect(() => { setNewCount(0); setAtBottom(true) }, [selId])
 
-  async function loadConversations() {
+async function loadConversations() {
     try {
       const res = await fetch(`${API}/api/conversations`)
       const data = await res.json()
       setConversations(data)
-      if (!selId && data.length > 0) setSelId(data[0].id)
+      setSelId(prev => prev ?? (data.length > 0 ? data[0].id : null))
     } catch (e) {
       console.error("Failed to load conversations", e)
     } finally {
@@ -316,6 +312,38 @@ function Inbox({ showLeadPanel = true }: { showLeadPanel?: boolean }) {
     }
   }
 
+  async function toggleTakeover(convId: string, currentState: boolean) {
+    try {
+      await fetch(`${API}/api/conversations/${convId}/takeover`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_active: !currentState })
+      })
+      loadConversations()
+    } catch (e) {
+      console.error("Takeover toggle failed", e)
+    }
+  }
+
+  async function sendManualMessage() {
+    if (!draftMessage.trim() || !selId) return
+    setSending(true)
+    try {
+      await fetch(`${API}/api/conversations/${selId}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: draftMessage })
+      })
+      setDraftMessage("")
+      loadMessages(selId)
+      loadConversations()
+    } catch (e) {
+      console.error("Send failed", e)
+    } finally {
+      setSending(false)
+    }
+  }
+
   useEffect(() => {
     loadConversations()
     const interval = setInterval(loadConversations, 5000)
@@ -330,6 +358,7 @@ function Inbox({ showLeadPanel = true }: { showLeadPanel?: boolean }) {
 
   const filtered = filter === "all" ? conversations : conversations.filter(c => c.lead_score === filter)
   const active = conversations.find(c => c.id === selId)
+  
   const filterColor = (f: string) => f === "hot" ? t.red : f === "warm" ? t.amber : f === "cold" ? t.blue : t.teal
 
   if (loading) return (
@@ -408,13 +437,17 @@ function Inbox({ showLeadPanel = true }: { showLeadPanel?: boolean }) {
                         {conv.last_message_at ? new Date(conv.last_message_at).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" }) : ""}
                       </span>
                     </div>
-                    <p style={{ fontSize: 12, color: t.muted, marginBottom: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, fontFamily: FONT_BODY }}>
-                      No messages yet
+                   <p style={{ fontSize: 12, color: t.muted, marginBottom: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, fontFamily: FONT_BODY }}>
+                      {conv.last_message || "No messages yet"}
                     </p>
                     <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
                       <PBadge platform={conv.platform} />
                       <SBadge score={conv.lead_score} />
-                      {conv.agent_active && <span style={{ fontSize: 10, color: t.green, fontFamily: FONT_BODY }}>✓ AI active</span>}
+                      {conv.agent_active ? (
+                        <span style={{ fontSize: 10, color: t.green, fontFamily: FONT_BODY }}>✓ AI active</span>
+                      ) : (
+                        <span style={{ fontSize: 10, color: t.amber, fontFamily: FONT_BODY }}>⏸ Paused</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -440,15 +473,29 @@ function Inbox({ showLeadPanel = true }: { showLeadPanel?: boolean }) {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                <motion.button whileTap={{ scale: 0.96 }} style={{ padding: "8px 16px", minHeight: 36, borderRadius: 10, fontSize: 12, fontWeight: 700, background: "transparent", border: `1px solid ${t.red}50`, color: t.red, cursor: "pointer", fontFamily: FONT_BODY }}>
-                  Take Over
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => toggleTakeover(active.id, active.agent_active)}
+                  style={{
+                    padding: "8px 16px", minHeight: 36, borderRadius: 10, fontSize: 12, fontWeight: 700,
+                    background: active.agent_active ? "transparent" : t.greenSoft,
+                    border: `1px solid ${active.agent_active ? t.red + "50" : t.green + "35"}`,
+                    color: active.agent_active ? t.red : t.green,
+                    cursor: "pointer", fontFamily: FONT_BODY,
+                  }}
+                >
+                  {active.agent_active ? "Take Over" : "Resume Agent"}
                 </motion.button>
-                <motion.button whileTap={{ scale: 0.96 }} style={{ padding: "8px 16px", minHeight: 36, borderRadius: 10, fontSize: 12, fontWeight: 700, background: t.greenSoft, border: `1px solid ${t.green}35`, color: t.green, cursor: "pointer", fontFamily: FONT_BODY }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: t.green }} />
-                    Agent Active
-                  </span>
-                </motion.button>
+                <span style={{
+                  padding: "8px 16px", minHeight: 36, borderRadius: 10, fontSize: 12, fontWeight: 700,
+                  background: active.agent_active ? t.greenSoft : t.amberSoft,
+                  border: `1px solid ${active.agent_active ? t.green : t.amber}35`,
+                  color: active.agent_active ? t.green : t.amber,
+                  display: "flex", alignItems: "center", gap: 5, fontFamily: FONT_BODY,
+                }}>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: active.agent_active ? t.green : t.amber }} />
+                  {active.agent_active ? "Agent Active" : "You're in control"}
+                </span>
               </div>
             </div>
 
@@ -472,6 +519,9 @@ function Inbox({ showLeadPanel = true }: { showLeadPanel?: boolean }) {
                       fontFamily: FONT_BODY,
                     }}>
                       {msg.content}
+                      {msg.sender === "Business Owner" && (
+                        <div style={{ fontSize: 9, opacity: 0.7, marginTop: 4 }}>— you</div>
+                      )}
                     </div>
                   </motion.div>
                 ))}
@@ -508,10 +558,27 @@ function Inbox({ showLeadPanel = true }: { showLeadPanel?: boolean }) {
 
             <div style={{ padding: "14px 20px", borderTop: `1px solid ${t.hairline}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, background: t.bg, borderRadius: 14, padding: "11px 16px", boxShadow: neu(t, true) }}>
-                <input aria-label="Type a message" placeholder="Type to take over this conversation…" style={{ flex: 1, background: "none", border: "none", outline: "none", fontSize: 13, color: t.ink, fontFamily: FONT_BODY }} />
-                <motion.button whileTap={{ scale: 0.9 }} aria-label="Send message" style={{ background: "none", border: "none", cursor: "pointer", color: t.teal, minWidth: 32, minHeight: 32 }}><Send size={16} /></motion.button>
+                <input
+                  aria-label="Type a message"
+                  value={draftMessage}
+                  onChange={(e) => setDraftMessage(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && draftMessage.trim() && !sending) sendManualMessage() }}
+                  placeholder={active.agent_active ? "Type to take over this conversation…" : "Type your reply…"}
+                  style={{ flex: 1, background: "none", border: "none", outline: "none", fontSize: 13, color: t.ink, fontFamily: FONT_BODY }}
+                />
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  aria-label="Send message"
+                  onClick={sendManualMessage}
+                  disabled={sending || !draftMessage.trim()}
+                  style={{ background: "none", border: "none", cursor: sending ? "wait" : "pointer", color: t.teal, minWidth: 32, minHeight: 32, opacity: draftMessage.trim() ? 1 : 0.4 }}
+                >
+                  <Send size={16} />
+                </motion.button>
               </div>
-              <p style={{ fontSize: 10, color: t.faint, textAlign: "center" as const, marginTop: 6, fontFamily: FONT_BODY }}>Typing here pauses the AI and lets you respond manually</p>
+              <p style={{ fontSize: 10, color: t.faint, textAlign: "center" as const, marginTop: 6, fontFamily: FONT_BODY }}>
+                {active.agent_active ? "Sending a message here pauses the AI automatically" : "You're responding manually. AI is paused for this chat."}
+              </p>
             </div>
           </>
         ) : (

@@ -1,17 +1,36 @@
 const express = require("express");
 const router = express.Router();
 const supabase = require("../services/supabase");
-
+const { getAuthUrl, getTokens, getUnreadEmails, sendEmail, markAsRead } = require("../services/gmail");
+const { classifyMessage, generateReply } = require("../services/qwen");
+const { scheduleFollowUp } = require("../services/followup");
+const { sendTelegram, sendWhatsApp } = require("../services/messenger");
 
 // Get all conversations
 router.get("/conversations", async (req, res) => {
-  const { data, error } = await supabase
+  const { data: convs, error } = await supabase
     .from("conversations")
     .select("*")
     .order("last_message_at", { ascending: false });
 
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+
+  // Attach last message to each conversation
+  const withLastMessage = await Promise.all(
+    (convs || []).map(async (conv) => {
+      const { data: lastMsg } = await supabase
+        .from("messages")
+        .select("content")
+        .eq("conversation_id", conv.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      return { ...conv, last_message: lastMsg?.content || null };
+    })
+  );
+
+  res.json(withLastMessage);
 });
 
 // Get messages for a conversation
@@ -59,10 +78,6 @@ router.patch("/conversations/:id/takeover", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
-
-const { getAuthUrl, getTokens, getUnreadEmails, sendEmail, markAsRead } = require("../services/gmail");
-const { classifyMessage, generateReply } = require("../services/qwen");
-const { scheduleFollowUp } = require("../services/followup");
 
 // Gmail OAuth
 router.get("/auth/gmail", (req, res) => {
@@ -167,6 +182,49 @@ router.post("/gmail/process", async (req, res) => {
     }
 
     res.json({ processed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Send a manual message (human takeover)
+router.post("/conversations/:id/send", async (req, res) => {
+  try {
+    const { message } = req.body;
+    const { data: conv } = await supabase
+      .from("conversations")
+      .select("*")
+      .eq("id", req.params.id)
+      .single();
+
+    if (!conv) return res.status(404).json({ error: "Conversation not found" });
+
+    // Auto pause agent when owner sends manually
+    if (conv.agent_active) {
+      await supabase
+        .from("conversations")
+        .update({ agent_active: false })
+        .eq("id", conv.id);
+    }
+
+    if (conv.platform === "telegram") {
+      await sendTelegram(conv.customer_id, message);
+    } else if (conv.platform === "whatsapp") {
+      await sendWhatsApp(conv.customer_id, message);
+    } else if (conv.platform === "email") {
+      await sendEmail(conv.customer_id, "Message from SentryAI", message);
+    }
+
+    await supabase.from("messages").insert({
+      conversation_id: conv.id,
+      platform: conv.platform,
+      direction: "outbound",
+      content: message,
+      message_type: "text",
+      sender: "Business Owner"
+    });
+
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

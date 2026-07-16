@@ -5,8 +5,10 @@ require("dotenv").config();
 const webhookRoutes = require("./routes/webhook");
 const apiRoutes = require("./routes/api");
 const { processFollowUps } = require("./services/followup");
+const { getAuthUrl, getTokens } = require("./services/gmail");
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
 app.use(cors({
   origin: "*",
@@ -21,12 +23,10 @@ app.use("/webhook", webhookRoutes);
 app.use("/api", apiRoutes);
 
 app.get("/auth/gmail", (req, res) => {
-  const { getAuthUrl } = require("./services/gmail");
   res.redirect(getAuthUrl());
 });
 
 app.get("/auth/gmail/callback", async (req, res) => {
-  const { getTokens } = require("./services/gmail");
   try {
     const tokens = await getTokens(req.query.code);
     res.send(`
@@ -39,12 +39,7 @@ app.get("/auth/gmail/callback", async (req, res) => {
   }
 });
 
-// Run follow-up scheduler every hour
-processFollowUps();
-setInterval(processFollowUps, 60 * 60 * 1000);
-
-const { getUnreadEmails } = require("./services/gmail");
-
+// ── Auto-processing intervals ──────────────────────────────────────────────
 async function autoProcessEmails() {
   try {
     const res = await fetch(`http://localhost:${PORT}/api/gmail/process`, { method: "POST" });
@@ -55,7 +50,13 @@ async function autoProcessEmails() {
   }
 }
 
-setInterval(autoProcessEmails, 5 * 60 * 1000);
+app.listen(PORT, () => {
+  console.log(`SentryAI running on port ${PORT}`);
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`SentryAI running on port ${PORT}`));
+  // Run follow-up scheduler every hour
+  processFollowUps();
+  setInterval(processFollowUps, 60 * 60 * 1000);
+
+  // Run email check every 5 minutes
+  setInterval(autoProcessEmails, 5 * 60 * 1000);
+});
