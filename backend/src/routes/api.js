@@ -289,4 +289,49 @@ router.post("/broadcast/:businessId/send", async (req, res) => {
   }
 });
 
+router.get("/activity/:businessId", async (req, res) => {
+  try {
+    const businessId = req.params.businessId;
+
+    const { data: messages } = await supabase
+      .from("messages")
+      .select("id, content, direction, platform, message_type, sender, created_at, conversations!inner(business_id, customer_name)")
+      .eq("direction", "outbound")
+      .eq("conversations.business_id", businessId)
+      .order("created_at", { ascending: false })
+      .limit(30);
+
+    const activity = (messages || []).map(m => {
+      let type = "reply";
+      let text = "Replied to " + (m.conversations?.customer_name || "customer") + " on " + m.platform;
+
+      if (m.message_type === "broadcast") {
+        type = "broadcast";
+        text = "Broadcast sent to " + (m.conversations?.customer_name || "customer") + " on " + m.platform;
+      } else if (m.sender === "Business Owner") {
+        type = "manual";
+        text = "You replied to " + (m.conversations?.customer_name || "customer") + " on " + m.platform;
+      } else if (m.content && m.content.toLowerCase().includes("checkout.paystack.com")) {
+        type = "payment";
+        text = "Payment link sent to " + (m.conversations?.customer_name || "customer");
+      } else if (m.sender && m.sender.toLowerCase().includes("follow-up")) {
+        type = "follow";
+        text = "Follow-up sent to " + (m.conversations?.customer_name || "customer");
+      }
+
+      return {
+        id: m.id,
+        type,
+        text,
+        sub: m.content ? m.content.slice(0, 80) : "",
+        time: m.created_at
+      };
+    });
+
+    res.json(activity);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

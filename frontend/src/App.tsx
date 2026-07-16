@@ -78,7 +78,7 @@ const THEMES = {
     neuDark: "rgba(0,0,0,0.4)",
   },
 }
-type Theme = typeof THEMES.light
+type Theme = typeof THEMES.light | typeof THEMES.dark
 
 const ThemeCtx = createContext<{ t: Theme; mode: "light" | "dark"; toggle: () => void }>({
   t: THEMES.light, mode: "light", toggle: () => {},
@@ -131,16 +131,6 @@ const PIPELINE = {
     { name: "@sade_styles", platform: "twitter",  value: "—", note: "Wedding collection interest" },
   ],
 }
-
-const ACTIVITY = [
-  { time: "2m ago",  icon: "reply",   text: "Replied to Chioma on WhatsApp",    sub: "Quoted ₦37,500 for 3 ankara pieces" },
-  { time: "8m ago",  icon: "score",   text: "Classified David as Warm lead",     sub: "Follow-up scheduled for 24hrs" },
-  { time: "22m ago", icon: "reply",   text: "Replied to Mr. Adeyemi via Email",  sub: "Requested measurements for bulk order" },
-  { time: "41m ago", icon: "reply",   text: "Replied to Tunde on TikTok",        sub: "Confirmed Lagos Island delivery" },
-  { time: "1h ago",  icon: "follow",  text: "Follow-up sent to Mrs. Bello",      sub: "48hr auto follow-up — no response yet" },
-  { time: "2h ago",  icon: "payment", text: "Payment link sent to Emeka",        sub: "Paystack link — ₦25,000 pending" },
-  { time: "3h ago",  icon: "closed",  text: "Kemi marked as Closed",             sub: "Payment confirmed, delivery scheduled" },
-]
 
 function MeshBackground() {
   const { t } = useTheme()
@@ -676,41 +666,88 @@ function Pipeline() {
 // ── Activity ──────────────────────────────────────────────────────────────────
 function ActivityLog() {
   const { t } = useTheme()
+  const API = import.meta.env.VITE_API_URL
+  const [activity, setActivity] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
   const iconMap: Record<string, { icon: React.ReactNode; color: string; soft: string }> = {
-    reply:   { icon: <Send size={13} />,        color: t.green, soft: t.greenSoft },
-    score:   { icon: <Zap size={13} />,         color: t.blue,  soft: t.blueSoft  },
-    follow:  { icon: <Clock size={13} />,       color: t.amber, soft: t.amberSoft },
-    payment: { icon: <DollarSign size={13} />,  color: t.red,   soft: t.redSoft   },
-    closed:  { icon: <UserCheck size={13} />,   color: t.green, soft: t.greenSoft },
+    reply:    { icon: <Send size={13} />,        color: t.green, soft: t.greenSoft },
+    manual:   { icon: <UserCheck size={13} />,   color: t.blue,  soft: t.blueSoft  },
+    follow:   { icon: <Clock size={13} />,       color: t.amber, soft: t.amberSoft },
+    payment:  { icon: <DollarSign size={13} />,  color: t.red,   soft: t.redSoft   },
+    broadcast:{ icon: <Radio size={13} />,       color: t.teal,  soft: t.tealSoft  },
+    closed:   { icon: <UserCheck size={13} />,   color: t.green, soft: t.greenSoft },
   }
+
+  function timeAgo(iso: string) {
+    const diffMs = Date.now() - new Date(iso).getTime()
+    const mins = Math.floor(diffMs / 60000)
+    if (mins < 1) return "just now"
+    if (mins < 60) return mins + "m ago"
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return hrs + "h ago"
+    const days = Math.floor(hrs / 24)
+    return days + "d ago"
+  }
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(API + "/api/activity/f5b6d17b-ce7c-4dfc-abc9-a19a6957fd4e")
+        const data = await res.json()
+        setActivity(data)
+      } catch (e) {
+        console.error("Failed to load activity", e)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+    const interval = setInterval(load, 8000)
+    return () => clearInterval(interval)
+  }, [])
+
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: t.faint, fontSize: 13, fontFamily: FONT_BODY }}>
+      Loading activity...
+    </div>
+  )
+
+  if (activity.length === 0) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 12 }}>
+      <Activity size={40} color={t.faint} aria-hidden="true" />
+      <p style={{ color: t.ink, fontWeight: 700, fontFamily: FONT_DISPLAY }}>No activity yet</p>
+      <p style={{ color: t.faint, fontSize: 13, fontFamily: FONT_BODY }}>Activity will show up here once the agent starts responding</p>
+    </div>
+  )
+
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", flexDirection: "column", gap: 10 }}>
-      {ACTIVITY.map((item, i) => {
-        const m = iconMap[item.icon]
+      {activity.map((item, i) => {
+        const m = iconMap[item.type] || iconMap.reply
         return (
           <motion.div
-            key={i}
+            key={item.id}
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.04, type: "spring", stiffness: 260, damping: 24 }}
+            transition={{ delay: i * 0.03, type: "spring", stiffness: 260, damping: 24 }}
             whileHover={{ x: 3 }}
             style={{ display: "flex", alignItems: "flex-start", gap: 14, borderRadius: 14, padding: "14px 16px", ...glass(t) }}
           >
             <div style={{ width: 32, height: 32, borderRadius: 10, flexShrink: 0, background: m.soft, color: m.color, display: "flex", alignItems: "center", justifyContent: "center" }}>
               {m.icon}
             </div>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: t.ink, marginBottom: 3, fontFamily: FONT_BODY }}>{item.text}</p>
-              <p style={{ fontSize: 11, color: t.muted, fontFamily: FONT_BODY }}>{item.sub}</p>
+              <p style={{ fontSize: 11, color: t.muted, fontFamily: FONT_BODY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{item.sub}</p>
             </div>
-            <span style={{ fontSize: 11, color: t.faint, flexShrink: 0, fontFamily: FONT_MONO }}>{item.time}</span>
+            <span style={{ fontSize: 11, color: t.faint, flexShrink: 0, fontFamily: FONT_MONO }}>{timeAgo(item.time)}</span>
           </motion.div>
         )
       })}
     </div>
   )
 }
-
 // ── Revenue ───────────────────────────────────────────────────────────────────
 function Revenue() {
   const { t } = useTheme()
