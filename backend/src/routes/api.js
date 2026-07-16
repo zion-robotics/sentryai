@@ -252,4 +252,41 @@ router.post("/report/:businessId/send", async (req, res) => {
   }
 });
 
+const { getRecipientsBySegment, generateBroadcastCopy, sendBroadcast } = require("../services/broadcast");
+
+router.get("/broadcast/:businessId/recipients/:segment", async (req, res) => {
+  try {
+    const recipients = await getRecipientsBySegment(req.params.businessId, req.params.segment);
+    res.json({ count: recipients.length, recipients });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/broadcast/:businessId/generate", async (req, res) => {
+  try {
+    const { brief } = req.body;
+    const { data: business } = await supabase
+      .from("businesses")
+      .select("*")
+      .eq("id", req.params.businessId)
+      .single();
+
+    const message = await generateBroadcastCopy(brief, business);
+    res.json({ message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/broadcast/:businessId/send", async (req, res) => {
+  try {
+    const { segment, message } = req.body;
+    const result = await sendBroadcast(req.params.businessId, segment, message);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
