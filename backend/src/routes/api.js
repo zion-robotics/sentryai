@@ -361,4 +361,33 @@ router.post("/push/test/:businessId", async (req, res) => {
   }
 });
 
+router.get("/pipeline/:businessId", async (req, res) => {
+  try {
+    const { data: convs, error } = await supabase
+      .from("conversations")
+      .select("id, customer_name, platform, lead_score, status")
+      .eq("business_id", req.params.businessId)
+      .order("last_message_at", { ascending: false });
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    const grouped = { hot: [], warm: [], cold: [] };
+
+    for (const c of convs || []) {
+      const score = c.lead_score || "cold";
+      if (!grouped[score]) continue;
+      grouped[score].push({
+        id: c.id,
+        name: c.customer_name,
+        platform: c.platform,
+        note: c.status === "closed" ? "Marked as closed" : "Active conversation"
+      });
+    }
+
+    res.json(grouped);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

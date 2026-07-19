@@ -106,23 +106,6 @@ const P: Record<string, { color: string; label: string }> = {
   twitter:   { color: "#1DA1F2", label: "X / Twitter" },
 }
 
-const PIPELINE = {
-  hot: [
-    { name: "Chioma A.",   platform: "whatsapp",  value: "₦37,500",  note: "Wants 3 ankara pieces — ready to pay" },
-    { name: "Mr. Adeyemi", platform: "email",     value: "₦450,000", note: "Bulk uniform order x50 staff" },
-    { name: "Mrs. Eze",    platform: "whatsapp",  value: "₦12,500",  note: "Payment confirmed — awaiting delivery" },
-    { name: "Bola K.",     platform: "instagram", value: "₦25,000",  note: "Custom bridal order requested" },
-  ],
-  warm: [
-    { name: "David O.",    platform: "telegram",  value: "₦45,000",  note: "Asking about aso-ebi packages" },
-    { name: "Fatima M.",   platform: "instagram", value: "₦18,000",  note: "Interested in custom orders" },
-    { name: "Tunde B.",    platform: "tiktok",    value: "₦12,500",  note: "Delivery inquiry — Lagos Island" },
-  ],
-  cold: [
-    { name: "Grace N.",     platform: "facebook", value: "—", note: "Delivery timeline question only" },
-    { name: "@sade_styles", platform: "twitter",  value: "—", note: "Wedding collection interest" },
-  ],
-}
 
 function MeshBackground() {
   const { t } = useTheme()
@@ -756,13 +739,41 @@ function Inbox() {
 // ── Pipeline ──────────────────────────────────────────────────────────────────
 function Pipeline() {
   const { t } = useTheme()
+  const API = import.meta.env.VITE_API_URL
+  const [data, setData] = useState<any>({ hot: [], warm: [], cold: [] })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(API + "/api/pipeline/f5b6d17b-ce7c-4dfc-abc9-a19a6957fd4e")
+        const json = await res.json()
+        setData(json)
+      } catch (e) {
+        console.error("Failed to load pipeline", e)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+    const interval = setInterval(load, 8000)
+    return () => clearInterval(interval)
+  }, [])
+
   const cols = [
-    { key: "hot",  label: "Hot Leads",  color: t.red,   leads: PIPELINE.hot  },
-    { key: "warm", label: "Warm Leads", color: t.amber, leads: PIPELINE.warm },
-    { key: "cold", label: "Cold Leads", color: t.blue,  leads: PIPELINE.cold },
+    { key: "hot",  label: "Hot Leads",  color: t.red,   leads: data.hot  || [] },
+    { key: "warm", label: "Warm Leads", color: t.amber, leads: data.warm || [] },
+    { key: "cold", label: "Cold Leads", color: t.blue,  leads: data.cold || [] },
   ]
+
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: t.faint, fontSize: 13, fontFamily: FONT_BODY }}>
+      Loading pipeline...
+    </div>
+  )
+
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gridAutoRows: "1fr", gap: 16, height: "100%" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, height: "100%", overflow: "auto" }}>
       {cols.map(col => (
         <div key={col.key} style={{ borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", ...glass(t) }}>
           <div style={{ padding: "14px 16px", borderBottom: `1px solid ${t.hairline}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -773,9 +784,12 @@ function Pipeline() {
             <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: col.color + "18", color: col.color, fontFamily: FONT_MONO }}>{col.leads.length}</span>
           </div>
           <div style={{ flex: 1, overflowY: "auto" as const, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-            {col.leads.map((lead, i) => (
+            {col.leads.length === 0 && (
+              <p style={{ fontSize: 12, color: t.faint, textAlign: "center" as const, marginTop: 20 }}>No leads here yet</p>
+            )}
+            {col.leads.map((lead: any, i: number) => (
               <motion.div
-                key={i}
+                key={lead.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05, type: "spring", stiffness: 260, damping: 24 }}
@@ -784,9 +798,8 @@ function Pipeline() {
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: t.ink, fontFamily: FONT_DISPLAY }}>{lead.name}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: col.color, fontFamily: FONT_MONO }}>{lead.value}</span>
                 </div>
-                <p style={{ fontSize: 11, color: t.muted, marginBottom: 8, lineHeight: 1.4, fontFamily: FONT_BODY }}>{lead.note}</p>
+                <p style={{ fontSize: 11, color: t.muted, marginBottom: 8, lineHeight: 1.4 }}>{lead.note}</p>
                 <PBadge platform={lead.platform} />
               </motion.div>
             ))}
@@ -796,7 +809,6 @@ function Pipeline() {
     </div>
   )
 }
-
 // ── Activity ──────────────────────────────────────────────────────────────────
 function ActivityLog() {
   const { t } = useTheme()
