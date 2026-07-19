@@ -60,6 +60,18 @@ async function handleMessage({ platform, customerId, customerName, text, rawBody
     })
     .eq("id", conv.id);
 
+  if (classification.lead_score === "hot") {
+    const { sendPushToBusiness } = require("../services/push");
+    try {
+      await sendPushToBusiness(businessId, {
+        title: "Hot lead alert",
+        body: customerName + " on " + platform + " needs your attention",
+      });
+    } catch (err) {
+      console.error("Push notification failed:", err.message);
+    }
+  }
+
   // Schedule follow-up for warm leads
   if (classification.lead_score === "warm") {
     const { scheduleFollowUp } = require("../services/followup");

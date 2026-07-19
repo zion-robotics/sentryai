@@ -4,18 +4,10 @@ import {
   MessageSquare, Flame, Activity, DollarSign,
   Radio, Settings, Search, Send, Zap,
   UserCheck, Clock, RefreshCw, Bell, Sun, Moon,
-  ChevronDown, ChevronsRight, ChevronsLeft
+  ChevronDown, ChevronsRight, ChevronsLeft, Info, X,
+  Upload, CreditCard, Building2, Users as UsersIcon
 } from "lucide-react"
-
-function useWindowWidth() {
-  const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1280)
-  useEffect(() => {
-    const onResize = () => setW(window.innerWidth)
-    window.addEventListener("resize", onResize)
-    return () => window.removeEventListener("resize", onResize)
-  }, [])
-  return w
-}
+import { queueMessage, flushQueue } from "./offlineQueue"
 
 function useFonts() {
   useEffect(() => {
@@ -232,17 +224,32 @@ function Dot({ color, glow = true }: { color: string; glow?: boolean }) {
   return <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: glow ? `0 0 6px ${color}` : "none", flexShrink: 0 }} />
 }
 
+// Skeleton shimmer for loading states
+function Skeleton({ w = "100%", h = 14, r = 6 }: { w?: number | string; h?: number; r?: number }) {
+  const { t } = useTheme()
+  const reduce = useReducedMotion()
+  return (
+    <motion.div
+      animate={reduce ? {} : { opacity: [0.5, 0.9, 0.5] }}
+      transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+      style={{ width: w, height: h, borderRadius: r, background: t.hairline }}
+    />
+  )
+}
+
 // ── Inbox ─────────────────────────────────────────────────────────────────────
-function Inbox({ showLeadPanel = true }: { showLeadPanel?: boolean }) {
+function Inbox() {
   const { t } = useTheme()
   const API = import.meta.env.VITE_API_URL
   const [conversations, setConversations] = useState<any[]>([])
   const [messages, setMessages] = useState<any[]>([])
   const [selId, setSelId] = useState<string | null>(null)
   const [filter, setFilter] = useState("all")
+  const [platformFilter, setPlatformFilter] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [draftMessage, setDraftMessage] = useState("")
   const [sending, setSending] = useState(false)
+  const [leadPanelOpen, setLeadPanelOpen] = useState(false)
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const prevLenRef = React.useRef(0)
   const [atBottom, setAtBottom] = useState(true)
@@ -277,9 +284,18 @@ function Inbox({ showLeadPanel = true }: { showLeadPanel?: boolean }) {
     prevLenRef.current = messages.length
   }, [messages]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { setNewCount(0); setAtBottom(true) }, [selId])
+  useEffect(() => { setNewCount(0); setAtBottom(true); setLeadPanelOpen(false) }, [selId])
 
-async function loadConversations() {
+  // Listen for the header's platform quick-filter dots
+  useEffect(() => {
+    function onPlatformJump(e: any) {
+      setPlatformFilter(e.detail)
+    }
+    window.addEventListener("sentryai:platform-filter", onPlatformJump)
+    return () => window.removeEventListener("sentryai:platform-filter", onPlatformJump)
+  }, [])
+
+  async function loadConversations() {
     try {
       const res = await fetch(`${API}/api/conversations`)
       const data = await res.json()
@@ -318,6 +334,14 @@ async function loadConversations() {
   async function sendManualMessage() {
     if (!draftMessage.trim() || !selId) return
     setSending(true)
+
+    if (!navigator.onLine) {
+      queueMessage(selId, draftMessage)
+      setDraftMessage("")
+      setSending(false)
+      return
+    }
+
     try {
       await fetch(`${API}/api/conversations/${selId}/send`, {
         method: "POST",
@@ -328,7 +352,9 @@ async function loadConversations() {
       loadMessages(selId)
       loadConversations()
     } catch (e) {
-      console.error("Send failed", e)
+      console.log("Send failed, queueing for later")
+      queueMessage(selId, draftMessage)
+      setDraftMessage("")
     } finally {
       setSending(false)
     }
@@ -346,27 +372,54 @@ async function loadConversations() {
     return () => clearInterval(interval)
   }, [selId])
 
-  const filtered = filter === "all" ? conversations : conversations.filter(c => c.lead_score === filter)
+  const filtered = conversations
+    .filter(c => filter === "all" || c.lead_score === filter)
+    .filter(c => !platformFilter || c.platform === platformFilter)
   const active = conversations.find(c => c.id === selId)
-  
+
   const filterColor = (f: string) => f === "hot" ? t.red : f === "warm" ? t.amber : f === "cold" ? t.blue : t.teal
 
   if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: t.faint, fontSize: 13, fontFamily: FONT_BODY }}>
-      Loading conversations…
+    <div style={{ display: "flex", flex: 1, gap: 14, padding: 14, height: "100%" }}>
+      <div style={{ width: 300, flexShrink: 0, borderRadius: 18, padding: 16, display: "flex", flexDirection: "column", gap: 14, ...glass(t) }}>
+        <Skeleton h={36} r={10} />
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} style={{ display: "flex", gap: 10 }}>
+            <Skeleton w={38} h={38} r={999} />
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+              <Skeleton h={12} w="70%" />
+              <Skeleton h={10} w="90%" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ flex: 1, borderRadius: 18, ...glass(t) }} />
     </div>
   )
 
   if (!loading && conversations.length === 0) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 12 }}>
-      <MessageSquare size={40} color={t.faint} aria-hidden="true" />
-      <p style={{ color: t.ink, fontWeight: 700, fontFamily: FONT_DISPLAY }}>No conversations yet</p>
-      <p style={{ color: t.faint, fontSize: 13, fontFamily: FONT_BODY }}>Send a message to your Telegram or WhatsApp bot to get started</p>
+    <div style={{ display: "flex", flex: 1, overflow: "hidden", height: "100%", gap: 14, padding: 14 }}>
+      <div style={{ width: 300, flexShrink: 0, borderRadius: 18, display: "flex", flexDirection: "column", ...glass(t) }}>
+        <div style={{ padding: "12px 14px", borderBottom: `1px solid ${t.hairline}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: t.bg, borderRadius: 10, padding: "9px 12px", boxShadow: neu(t, true) }}>
+            <Search size={13} color={t.faint} aria-hidden="true" />
+            <input aria-label="Search conversations" placeholder="Search conversations…" disabled style={{ background: "none", border: "none", outline: "none", fontSize: 13, color: t.faint, flex: 1, fontFamily: FONT_BODY }} />
+          </div>
+        </div>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <p style={{ color: t.faint, fontSize: 12, textAlign: "center" as const, fontFamily: FONT_BODY }}>Conversations will appear here</p>
+        </div>
+      </div>
+      <div style={{ flex: 1, borderRadius: 18, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, ...glass(t) }}>
+        <MessageSquare size={40} color={t.faint} aria-hidden="true" />
+        <p style={{ color: t.ink, fontWeight: 700, fontFamily: FONT_DISPLAY }}>No conversations yet</p>
+        <p style={{ color: t.faint, fontSize: 13, fontFamily: FONT_BODY }}>Send a message to your Telegram or WhatsApp bot to get started</p>
+      </div>
     </div>
   )
 
   return (
-    <div style={{ display: "flex", flex: 1, overflow: "hidden", height: "100%", gap: 14, padding: 14 }}>
+    <div style={{ display: "flex", flex: 1, overflow: "hidden", height: "100%", gap: 14, padding: 14, position: "relative" }}>
 
       {/* List panel */}
       <div style={{ width: 300, flexShrink: 0, borderRadius: 18, display: "flex", flexDirection: "column", overflow: "hidden", ...glass(t) }}>
@@ -401,49 +454,65 @@ async function loadConversations() {
           })}
         </div>
 
+        {platformFilter && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderBottom: `1px solid ${t.hairline}` }}>
+            <span style={{ fontSize: 11, color: t.muted, fontFamily: FONT_BODY }}>Filtering:</span>
+            <PBadge platform={platformFilter} />
+            <button onClick={() => setPlatformFilter(null)} aria-label="Clear platform filter" style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: t.faint, display: "flex" }}>
+              <X size={12} />
+            </button>
+          </div>
+        )}
+
         <div style={{ flex: 1, overflowY: "auto" as const }}>
-          {filtered.map(conv => {
-            const isS = selId === conv.id
-            return (
-              <motion.div
-                key={conv.id}
-                onClick={() => setSelId(conv.id)}
-                whileHover={{ x: 2 }}
-                style={{
-                  padding: "14px 16px", cursor: "pointer",
-                  borderBottom: `1px solid ${t.hairline}`,
-                  borderLeft: `3px solid ${isS ? t.teal : "transparent"}`,
-                  background: isS ? t.tealSoft : "transparent",
-                }}
-              >
-                <div style={{ display: "flex", gap: 11, alignItems: "flex-start" }}>
-                  <Avatar name={conv.customer_name || "?"} platform={conv.platform} size={38} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: t.ink, fontFamily: FONT_DISPLAY }}>
-                        {conv.customer_name}
-                      </span>
-                      <span style={{ fontSize: 11, color: t.faint, flexShrink: 0, marginLeft: 6, fontFamily: FONT_MONO }}>
-                        {conv.last_message_at ? new Date(conv.last_message_at).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" }) : ""}
-                      </span>
-                    </div>
-                   <p style={{ fontSize: 12, color: t.muted, marginBottom: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, fontFamily: FONT_BODY }}>
-                      {conv.last_message || "No messages yet"}
-                    </p>
-                    <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
-                      <PBadge platform={conv.platform} />
-                      <SBadge score={conv.lead_score} />
-                      {conv.agent_active ? (
-                        <span style={{ fontSize: 10, color: t.green, fontFamily: FONT_BODY }}>✓ AI active</span>
-                      ) : (
-                        <span style={{ fontSize: 10, color: t.amber, fontFamily: FONT_BODY }}>⏸ Paused</span>
-                      )}
+          <AnimatePresence initial={false}>
+            {filtered.map(conv => {
+              const isS = selId === conv.id
+              return (
+                <motion.div
+                  key={conv.id}
+                  layout
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setSelId(conv.id)}
+                  whileHover={{ x: 2 }}
+                  style={{
+                    padding: "14px 16px", cursor: "pointer",
+                    borderBottom: `1px solid ${t.hairline}`,
+                    borderLeft: `3px solid ${isS ? t.teal : "transparent"}`,
+                    background: isS ? t.tealSoft : "transparent",
+                  }}
+                >
+                  <div style={{ display: "flex", gap: 11, alignItems: "flex-start" }}>
+                    <Avatar name={conv.customer_name || "?"} platform={conv.platform} size={38} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: t.ink, fontFamily: FONT_DISPLAY }}>
+                          {conv.customer_name}
+                        </span>
+                        <span style={{ fontSize: 11, color: t.faint, flexShrink: 0, marginLeft: 6, fontFamily: FONT_MONO }}>
+                          {conv.last_message_at ? new Date(conv.last_message_at).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" }) : ""}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: 12, color: t.muted, marginBottom: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, fontFamily: FONT_BODY }}>
+                        {conv.last_message || "No messages yet"}
+                      </p>
+                      <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                        <PBadge platform={conv.platform} />
+                        <SBadge score={conv.lead_score} />
+                        {conv.agent_active ? (
+                          <span style={{ fontSize: 10, color: t.green, fontFamily: FONT_BODY }}>✓ AI active</span>
+                        ) : (
+                          <span style={{ fontSize: 10, color: t.amber, fontFamily: FONT_BODY }}>⏸ Paused</span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </motion.div>
-            )
-          })}
+                </motion.div>
+              )
+            })}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -462,7 +531,7 @@ async function loadConversations() {
                   </div>
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <motion.button
                   whileTap={{ scale: 0.96 }}
                   onClick={() => toggleTakeover(active.id, active.agent_active)}
@@ -483,9 +552,29 @@ async function loadConversations() {
                   color: active.agent_active ? t.green : t.amber,
                   display: "flex", alignItems: "center", gap: 5, fontFamily: FONT_BODY,
                 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: active.agent_active ? t.green : t.amber }} />
+                  <motion.span
+                    animate={active.agent_active ? { scale: [1, 1.3, 1] } : {}}
+                    transition={{ duration: 1.6, repeat: Infinity }}
+                    style={{ width: 6, height: 6, borderRadius: "50%", background: active.agent_active ? t.green : t.amber }}
+                  />
                   {active.agent_active ? "Agent Active" : "You're in control"}
                 </span>
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => setLeadPanelOpen(o => !o)}
+                  aria-label="Toggle lead info"
+                  aria-expanded={leadPanelOpen}
+                  title="Lead info"
+                  style={{
+                    width: 36, height: 36, borderRadius: 10, border: "none", cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    background: leadPanelOpen ? t.tealSoft : t.bg,
+                    color: leadPanelOpen ? t.teal : t.muted,
+                    boxShadow: leadPanelOpen ? "none" : neu(t, false),
+                  }}
+                >
+                  <Info size={16} />
+                </motion.button>
               </div>
             </div>
 
@@ -544,6 +633,88 @@ async function loadConversations() {
                   </motion.button>
                 )}
               </AnimatePresence>
+
+              {/* Lead info drawer — slides over the chat on demand, doesn't squeeze the layout */}
+              <AnimatePresence>
+                {leadPanelOpen && (
+                  <>
+                    <motion.div
+                      key="lead-backdrop"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      onClick={() => setLeadPanelOpen(false)}
+                      style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.12)", zIndex: 5 }}
+                    />
+                    <motion.div
+                      key="lead-drawer"
+                      initial={{ x: "100%" }}
+                      animate={{ x: 0 }}
+                      exit={{ x: "100%" }}
+                      transition={{ type: "spring", stiffness: 340, damping: 34 }}
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        zIndex: 6,
+                        padding: 24,
+                        overflow: "hidden",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 18,
+                        background: t.mode === "light" ? "rgba(247, 252, 251, 0.96)" : "rgba(9, 17, 17, 0.96)",
+                        backdropFilter: "blur(10px) saturate(130%)",
+                        WebkitBackdropFilter: "blur(10px) saturate(130%)",
+                        border: `1px solid ${t.border}`,
+                        boxShadow: t.mode === "light"
+                          ? "inset 0 1px 0 rgba(255,255,255,0.6), 0 18px 40px rgba(14,27,27,0.08)"
+                          : "inset 0 1px 0 rgba(255,255,255,0.06), 0 18px 40px rgba(0,0,0,0.28)",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                        <div>
+                          <p style={{ fontSize: 13, fontWeight: 700, color: t.faint, textTransform: "uppercase" as const, letterSpacing: 1, fontFamily: FONT_BODY }}>Lead Info</p>
+                          <p style={{ fontSize: 20, fontWeight: 800, color: t.ink, fontFamily: FONT_DISPLAY, marginTop: 3 }}>{active.customer_name}</p>
+                        </div>
+                        <button onClick={() => setLeadPanelOpen(false)} aria-label="Close lead info" style={{ background: "none", border: "none", cursor: "pointer", color: t.faint, display: "flex" }}>
+                          <X size={18} />
+                        </button>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(260px, 1fr)", gap: 18, minHeight: 0, flex: 1 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12, alignContent: "start" }}>
+                          {[
+                            { label: "Platform", value: <PBadge platform={active.platform} /> },
+                            { label: "Score",    value: <span className="lead-score-pop"><SBadge score={active.lead_score} /></span> },
+                            { label: "Status",   value: active.status },
+                            { label: "Agent",    value: active.agent_active ? "Active" : "Paused" },
+                          ].map(({ label, value }) => (
+                            <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${t.hairline}` }}>
+                              <span style={{ fontSize: 11, color: t.faint, fontFamily: FONT_BODY, textTransform: "uppercase" as const, letterSpacing: 0.8 }}>{label}</span>
+                              <span style={{ fontSize: 12, color: t.muted, fontFamily: FONT_BODY }}>{value}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 14, minHeight: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 10, borderBottom: `1px solid ${t.hairline}` }}>
+                            <p style={{ fontSize: 10, fontWeight: 700, color: t.faint, textTransform: "uppercase" as const, letterSpacing: 1, fontFamily: FONT_BODY }}>Quick Actions</p>
+                            <span style={{ fontSize: 11, color: t.faint, fontFamily: FONT_BODY }}>No internal scroll</span>
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
+                            {[
+                              { label: "Send Payment Link",   color: t.green, soft: t.greenSoft },
+                              { label: "Schedule Follow-up",  color: t.amber, soft: t.amberSoft },
+                              { label: "Mark as Closed",      color: t.red,   soft: t.redSoft   },
+                            ].map(({ label, color, soft }) => (
+                              <motion.button key={label} whileTap={{ scale: 0.98 }} whileHover={{ y: -1 }} style={{ padding: "14px 14px", minHeight: 48, borderRadius: 14, border: `1px solid ${color}35`, background: soft, color, fontSize: 13, fontWeight: 700, cursor: "pointer", textAlign: "left" as const, fontFamily: FONT_BODY, boxShadow: `0 8px 20px ${color}12` }}>
+                                {label}
+                              </motion.button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
             </div>
 
             <div style={{ padding: "14px 20px", borderTop: `1px solid ${t.hairline}` }}>
@@ -578,43 +749,6 @@ async function loadConversations() {
           </div>
         )}
       </div>
-
-      {/* Lead panel */}
-      {active && showLeadPanel && (
-        <div style={{ width: 240, flexShrink: 0, padding: "20px 16px", overflowY: "auto" as const, display: "flex", flexDirection: "column", gap: 20, borderRadius: 18, ...glass(t) }}>
-          <div>
-            <p style={{ fontSize: 10, fontWeight: 700, color: t.faint, textTransform: "uppercase" as const, letterSpacing: 1, marginBottom: 12, fontFamily: FONT_BODY }}>Lead Info</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {[
-                { label: "Platform", value: <PBadge platform={active.platform} /> },
-                { label: "Score",    value: <SBadge score={active.lead_score} /> },
-                { label: "Status",   value: active.status },
-                { label: "Agent",    value: active.agent_active ? "Active" : "Paused" },
-              ].map(({ label, value }) => (
-                <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: t.faint, fontFamily: FONT_BODY }}>{label}</span>
-                  <span style={{ fontSize: 11, color: t.muted, fontFamily: FONT_BODY }}>{value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={{ height: 1, background: t.hairline }} />
-          <div>
-            <p style={{ fontSize: 10, fontWeight: 700, color: t.faint, textTransform: "uppercase" as const, letterSpacing: 1, marginBottom: 10, fontFamily: FONT_BODY }}>Quick Actions</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              {[
-                { label: "Send Payment Link",   color: t.green, soft: t.greenSoft },
-                { label: "Schedule Follow-up",  color: t.amber, soft: t.amberSoft },
-                { label: "Mark as Closed",      color: t.red,   soft: t.redSoft   },
-              ].map(({ label, color, soft }) => (
-                <motion.button key={label} whileTap={{ scale: 0.97 }} whileHover={{ x: 2 }} style={{ padding: "10px 12px", minHeight: 40, borderRadius: 10, border: `1px solid ${color}30`, background: soft, color, fontSize: 12, fontWeight: 600, cursor: "pointer", textAlign: "left" as const, fontFamily: FONT_BODY }}>
-                  {label}
-                </motion.button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -628,7 +762,7 @@ function Pipeline() {
     { key: "cold", label: "Cold Leads", color: t.blue,  leads: PIPELINE.cold },
   ]
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, height: "100%", overflow: "auto" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gridAutoRows: "1fr", gap: 16, height: "100%" }}>
       {cols.map(col => (
         <div key={col.key} style={{ borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", ...glass(t) }}>
           <div style={{ padding: "14px 16px", borderBottom: `1px solid ${t.hairline}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -708,8 +842,16 @@ function ActivityLog() {
   }, [])
 
   if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: t.faint, fontSize: 13, fontFamily: FONT_BODY }}>
-      Loading activity...
+    <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", flexDirection: "column", gap: 10 }}>
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 14, borderRadius: 14, padding: "14px 16px", ...glass(t) }}>
+          <Skeleton w={32} h={32} r={10} />
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+            <Skeleton h={12} w="60%" />
+            <Skeleton h={10} w="40%" />
+          </div>
+        </div>
+      ))}
     </div>
   )
 
@@ -748,6 +890,7 @@ function ActivityLog() {
     </div>
   )
 }
+
 // ── Revenue ───────────────────────────────────────────────────────────────────
 function Revenue() {
   const { t } = useTheme()
@@ -758,7 +901,7 @@ function Revenue() {
     { label: "Est. Missed Revenue", value: "₦180,000", sub: "From no-reply leads", color: t.red   },
   ]
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, height: "100%" }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 14 }}>
         {cards.map((c, i) => (
           <motion.div
@@ -775,20 +918,20 @@ function Revenue() {
           </motion.div>
         ))}
       </div>
-      <div style={{ borderRadius: 16, padding: 20, ...glass(t) }}>
-        <p style={{ fontSize: 13, fontWeight: 700, color: t.ink, marginBottom: 16, fontFamily: FONT_DISPLAY }}>Platform Breakdown</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ borderRadius: 16, padding: 24, flex: 1, display: "flex", flexDirection: "column", ...glass(t) }}>
+        <p style={{ fontSize: 13, fontWeight: 700, color: t.ink, marginBottom: 20, fontFamily: FONT_DISPLAY }}>Platform Breakdown</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16, flex: 1, justifyContent: "center" }}>
           {Object.entries(P).map(([key, p]) => {
             const pct = key === "whatsapp" ? 45 : key === "telegram" ? 25 : key === "instagram" ? 15 : 5
             return (
               <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <span style={{ width: 90, fontSize: 12, color: t.muted, flexShrink: 0, fontFamily: FONT_BODY }}>{p.label}</span>
-                <div style={{ flex: 1, height: 6, background: t.bg, borderRadius: 3, overflow: "hidden", boxShadow: `inset 0 1px 3px ${t.border}` }}>
+                <div style={{ flex: 1, height: 8, background: t.bg, borderRadius: 4, overflow: "hidden", boxShadow: `inset 0 1px 3px ${t.border}` }}>
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: `${pct}%` }}
                     transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
-                    style={{ height: "100%", background: p.color, borderRadius: 3 }}
+                    style={{ height: "100%", background: p.color, borderRadius: 4 }}
                   />
                 </div>
                 <span style={{ width: 34, fontSize: 11, color: t.faint, textAlign: "right" as const, fontFamily: FONT_MONO }}>{pct}%</span>
@@ -796,6 +939,236 @@ function Revenue() {
             )
           })}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Broadcast ─────────────────────────────────────────────────────────────────
+function Broadcast() {
+  const { t } = useTheme()
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(["whatsapp", "telegram", "email"])
+  const [audience, setAudience] = useState("all")
+  const [message, setMessage] = useState("")
+
+  function togglePlatform(key: string) {
+    setSelectedPlatforms(prev => prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key])
+  }
+
+  const pastBroadcasts = [
+    { title: "New Ankara collection launch", date: "3 days ago", reach: "412 contacts", platforms: ["whatsapp", "instagram"] },
+    { title: "End of month discount — 15% off", date: "1 week ago", reach: "389 contacts", platforms: ["whatsapp", "telegram", "email"] },
+    { title: "Eid delivery schedule update", date: "3 weeks ago", reach: "356 contacts", platforms: ["whatsapp", "telegram"] },
+  ]
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.3fr) minmax(260px, 1fr)", gap: 20, alignItems: "start" }}>
+      {/* Composer */}
+      <div style={{ borderRadius: 16, padding: 20, display: "flex", flexDirection: "column", gap: 16, ...glass(t) }}>
+        <div>
+          <p style={{ fontSize: 13, fontWeight: 700, color: t.ink, fontFamily: FONT_DISPLAY, marginBottom: 4 }}>New Broadcast</p>
+          <p style={{ fontSize: 11, color: t.faint, fontFamily: FONT_BODY }}>Send one message across every platform you pick, at once.</p>
+        </div>
+
+        <div>
+          <p style={{ fontSize: 11, fontWeight: 700, color: t.faint, textTransform: "uppercase" as const, letterSpacing: 0.5, marginBottom: 8, fontFamily: FONT_BODY }}>Platforms</p>
+          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
+            {Object.entries(P).map(([key, p]) => {
+              const isSel = selectedPlatforms.includes(key)
+              return (
+                <motion.button
+                  key={key}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => togglePlatform(key)}
+                  aria-pressed={isSel}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 20,
+                    border: `1px solid ${isSel ? p.color + "50" : t.hairline}`,
+                    background: isSel ? p.color + "18" : t.bg,
+                    color: isSel ? p.color : t.faint, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY,
+                  }}
+                >
+                  <Dot color={p.color} glow={isSel} />
+                  {p.label}
+                </motion.button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div>
+          <p style={{ fontSize: 11, fontWeight: 700, color: t.faint, textTransform: "uppercase" as const, letterSpacing: 0.5, marginBottom: 8, fontFamily: FONT_BODY }}>Audience</p>
+          <div style={{ display: "flex", gap: 6 }}>
+            {["all", "hot", "warm", "cold"].map(a => (
+              <motion.button
+                key={a}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setAudience(a)}
+                aria-pressed={audience === a}
+                style={{
+                  flex: 1, padding: "8px 0", borderRadius: 10, border: "none", cursor: "pointer",
+                  fontSize: 11, fontWeight: 700, textTransform: "capitalize" as const,
+                  background: t.bg, boxShadow: audience === a ? neu(t, true) : neu(t, false),
+                  color: audience === a ? t.teal : t.muted, fontFamily: FONT_BODY,
+                }}
+              >{a}</motion.button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p style={{ fontSize: 11, fontWeight: 700, color: t.faint, textTransform: "uppercase" as const, letterSpacing: 0.5, marginBottom: 8, fontFamily: FONT_BODY }}>Message</p>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Write your campaign message…"
+            rows={5}
+            style={{
+              width: "100%", resize: "vertical" as const, background: t.bg, borderRadius: 12, border: "none",
+              boxShadow: neu(t, true), padding: "12px 14px", fontSize: 13, color: t.ink, fontFamily: FONT_BODY, outline: "none",
+            }}
+          />
+        </div>
+
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          whileHover={{ y: -1 }}
+          disabled={!message.trim() || selectedPlatforms.length === 0}
+          style={{
+            alignSelf: "flex-start", padding: "11px 22px", borderRadius: 12, border: "none",
+            background: `linear-gradient(135deg, ${t.teal}, ${t.tealDeep})`, color: "#fff",
+            fontSize: 13, fontWeight: 700, cursor: message.trim() ? "pointer" : "not-allowed",
+            opacity: message.trim() && selectedPlatforms.length > 0 ? 1 : 0.5,
+            boxShadow: `0 6px 16px ${t.tealSoft}`, fontFamily: FONT_BODY, display: "flex", alignItems: "center", gap: 8,
+          }}
+        >
+          <Radio size={15} /> Send Broadcast
+        </motion.button>
+      </div>
+
+      {/* Past broadcasts */}
+      <div style={{ borderRadius: 16, padding: 20, display: "flex", flexDirection: "column", gap: 12, ...glass(t) }}>
+        <p style={{ fontSize: 13, fontWeight: 700, color: t.ink, fontFamily: FONT_DISPLAY }}>Past Broadcasts</p>
+        {pastBroadcasts.map((b, i) => (
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.06 }}
+            style={{ padding: "12px 14px", borderRadius: 12, background: t.elevated, border: `1px solid ${t.hairline}` }}
+          >
+            <p style={{ fontSize: 12, fontWeight: 700, color: t.ink, marginBottom: 4, fontFamily: FONT_BODY }}>{b.title}</p>
+            <p style={{ fontSize: 11, color: t.faint, marginBottom: 8, fontFamily: FONT_BODY }}>{b.date} · {b.reach}</p>
+            <div style={{ display: "flex", gap: 5 }}>
+              {b.platforms.map(pk => <PBadge key={pk} platform={pk} />)}
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+function Settings_() {
+  const { t } = useTheme()
+  const [businessName, setBusinessName] = useState("SentryAI Demo Business")
+  const [tone, setTone] = useState("friendly")
+
+  function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+    return (
+      <div>
+        <label style={{ fontSize: 11, color: t.faint, fontFamily: FONT_BODY, display: "block", marginBottom: 6 }}>{label}</label>
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          style={{ width: "100%", background: t.bg, borderRadius: 10, border: "none", boxShadow: neu(t, true), padding: "10px 12px", fontSize: 13, color: t.ink, fontFamily: FONT_BODY, outline: "none" }}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gridAutoRows: "1fr", gap: 20, height: "100%" }}>
+
+      {/* Business profile */}
+      <div style={{ borderRadius: 16, padding: 20, display: "flex", flexDirection: "column", gap: 14, ...glass(t) }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Building2 size={16} color={t.teal} />
+          <p style={{ fontSize: 13, fontWeight: 700, color: t.ink, fontFamily: FONT_DISPLAY }}>Business Profile</p>
+        </div>
+        <Field label="Business name" value={businessName} onChange={setBusinessName} />
+        <div>
+          <label style={{ fontSize: 11, color: t.faint, fontFamily: FONT_BODY, display: "block", marginBottom: 6 }}>Reply tone</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            {["friendly", "professional", "casual"].map(o => (
+              <motion.button
+                key={o}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setTone(o)}
+                aria-pressed={tone === o}
+                style={{
+                  flex: 1, padding: "8px 0", borderRadius: 10, border: "none", cursor: "pointer",
+                  fontSize: 11, fontWeight: 700, textTransform: "capitalize" as const,
+                  background: t.bg, boxShadow: tone === o ? neu(t, true) : neu(t, false),
+                  color: tone === o ? t.teal : t.muted, fontFamily: FONT_BODY,
+                }}
+              >{o}</motion.button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Catalog */}
+      <div style={{ borderRadius: 16, padding: 20, display: "flex", flexDirection: "column", gap: 14, ...glass(t) }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <UsersIcon size={16} color={t.teal} />
+          <p style={{ fontSize: 13, fontWeight: 700, color: t.ink, fontFamily: FONT_DISPLAY }}>Product Catalog</p>
+        </div>
+        <p style={{ fontSize: 12, color: t.muted, fontFamily: FONT_BODY, lineHeight: 1.5 }}>
+          Upload your price list once — the agent uses it to answer product and pricing questions automatically.
+        </p>
+        <motion.button
+          whileHover={{ y: -1 }}
+          whileTap={{ scale: 0.97 }}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            padding: "22px 0", borderRadius: 12, border: `1.5px dashed ${t.hairline}`,
+            background: "transparent", color: t.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY,
+          }}
+        >
+          <Upload size={16} /> Upload catalog (CSV or PDF)
+        </motion.button>
+      </div>
+
+      {/* Integrations */}
+      <div style={{ borderRadius: 16, padding: 20, display: "flex", flexDirection: "column", gap: 12, ...glass(t) }}>
+        <p style={{ fontSize: 13, fontWeight: 700, color: t.ink, fontFamily: FONT_DISPLAY }}>Integrations</p>
+        {Object.entries(P).map(([key, p]) => (
+          <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${t.hairline}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Dot color={p.color} />
+              <span style={{ fontSize: 12, color: t.ink, fontFamily: FONT_BODY }}>{p.label}</span>
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 700, color: t.green, fontFamily: FONT_BODY }}>Connected</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Payments */}
+      <div style={{ borderRadius: 16, padding: 20, display: "flex", flexDirection: "column", gap: 14, ...glass(t) }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <CreditCard size={16} color={t.teal} />
+          <p style={{ fontSize: 13, fontWeight: 700, color: t.ink, fontFamily: FONT_DISPLAY }}>Payment Providers</p>
+        </div>
+        {["Paystack", "Flutterwave"].map(name => (
+          <div key={name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 12, color: t.ink, fontFamily: FONT_BODY }}>{name}</span>
+            <div style={{ width: 40, height: 22, borderRadius: 20, background: t.greenSoft, border: `1px solid ${t.green}35`, position: "relative", display: "flex", alignItems: "center" }}>
+              <div style={{ width: 16, height: 16, borderRadius: "50%", background: t.green, marginLeft: 21 }} />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -817,52 +1190,44 @@ function DashboardShell() {
   const [active, setActive] = useState("inbox")
   const [navOpen, setNavOpen] = useState(false)
   const reduce = useReducedMotion()
-  const winW = useWindowWidth()
-  const showLeadPanel = winW >= 1040
-
-  const STATS = [
-    { label: "Messages",  value: "89",       color: t.ink   },
-    { label: "Hot Leads", value: "4",        color: t.red   },
-    { label: "Warm",      value: "12",       color: t.amber },
-    { label: "Closed",    value: "11",       color: t.green },
-    { label: "Revenue",   value: "₦284k",    color: t.green },
-    { label: "Platforms", value: "6 active", color: t.blue  },
-  ]
 
   const content: Record<string, React.ReactNode> = {
-    inbox:     <Inbox showLeadPanel={showLeadPanel} />,
+    inbox:     <Inbox />,
     pipeline:  <Pipeline />,
     activity:  <ActivityLog />,
     revenue:   <Revenue />,
-    broadcast: (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300, flexDirection: "column", gap: 12 }}>
-        <Radio size={40} color={t.teal} aria-hidden="true" />
-        <p style={{ fontSize: 15, fontWeight: 700, color: t.ink, fontFamily: FONT_DISPLAY }}>Broadcast</p>
-        <p style={{ fontSize: 13, color: t.muted, fontFamily: FONT_BODY }}>Send campaigns across all platforms at once. Coming Day 4.</p>
-      </div>
-    ),
-    settings: (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300, flexDirection: "column", gap: 12 }}>
-        <Settings size={40} color={t.faint} aria-hidden="true" />
-        <p style={{ fontSize: 15, fontWeight: 700, color: t.ink, fontFamily: FONT_DISPLAY }}>Settings</p>
-        <p style={{ fontSize: 13, color: t.muted, fontFamily: FONT_BODY }}>Business profile, catalog, and integrations. Coming Day 5.</p>
-      </div>
-    ),
+    broadcast: <Broadcast />,
+    settings:  <Settings_ />,
   }
 
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden", position: "relative", fontFamily: FONT_BODY }}>
+    <div style={{ display: "flex", width: "100%", minHeight: "100dvh", height: "100dvh", overflow: "hidden", position: "relative", fontFamily: FONT_BODY }}>
       <MeshBackground />
 
-      {/* Sidebar */}
+      {/* Sidebar — navigation only. Account-level controls (theme, notifications, refresh)
+          live in the header, per convention (top-right is where people expect them). */}
       <motion.aside
         animate={{ width: navOpen ? 208 : 64 }}
         transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 320, damping: 32 }}
         style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: navOpen ? "stretch" : "center", padding: "14px 10px", gap: 6, position: "relative", zIndex: 2, margin: 10, borderRadius: 20, overflow: "hidden", ...glass(t) }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, paddingLeft: navOpen ? 4 : 0, justifyContent: navOpen ? "flex-start" : "center" }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: `linear-gradient(135deg, ${t.teal}, ${t.tealDeep})`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: `0 4px 12px ${t.tealSoft}` }}>
-            <Zap size={17} color="#fff" fill="#fff" aria-hidden="true" />
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: `linear-gradient(135deg, ${t.teal}, ${t.tealDeep})`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: `0 4px 12px ${t.tealSoft}`, overflow: "hidden", position: "relative" }}>
+            {/* Reads the real favicon.svg from /public — falls back to the Zap glyph if it 404s */}
+            <img
+              src="/favicon.svg"
+              alt="SentryAI"
+              width={20} height={20}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none"
+                const fallback = e.currentTarget.parentElement?.querySelector("[data-logo-fallback]") as HTMLElement | null
+                if (fallback) fallback.style.display = "flex"
+              }}
+              style={{ display: "block" }}
+            />
+            <span data-logo-fallback style={{ display: "none", position: "absolute", inset: 0, alignItems: "center", justifyContent: "center" }}>
+              <Zap size={17} color="#fff" fill="#fff" aria-hidden="true" />
+            </span>
           </div>
           {navOpen && <span style={{ fontSize: 14, fontWeight: 800, color: t.ink, fontFamily: FONT_DISPLAY, whiteSpace: "nowrap" }}>SentryAI</span>}
         </div>
@@ -899,7 +1264,8 @@ function DashboardShell() {
           )
         })}
 
-        <div style={{ marginTop: "auto", display: "flex", flexDirection: navOpen ? "column" : "column", alignItems: navOpen ? "stretch" : "center", gap: 10, paddingTop: 8 }}>
+        {/* Sidebar footer — collapse control + connection status ONLY */}
+        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", alignItems: navOpen ? "stretch" : "center", gap: 10, paddingTop: 8 }}>
           <motion.button
             whileTap={{ scale: 0.92 }}
             onClick={() => setNavOpen(o => !o)}
@@ -914,52 +1280,47 @@ function DashboardShell() {
             {navOpen ? <ChevronsLeft size={16} aria-hidden="true" /> : <ChevronsRight size={16} aria-hidden="true" />}
             {navOpen && <span style={{ fontSize: 12, fontWeight: 600, fontFamily: FONT_BODY }}>Collapse</span>}
           </motion.button>
-
-          <div style={{ display: "flex", alignItems: "center", justifyContent: navOpen ? "space-between" : "center", flexDirection: navOpen ? "row" : "column", gap: 10, width: navOpen ? "100%" : "auto", paddingLeft: navOpen ? 4 : 0 }}>
-            <ThemeToggle />
-            <div style={{ display: "flex", gap: 6 }}>
-              <button aria-label="Notifications" style={{ background: "none", border: "none", cursor: "pointer", padding: 8 }}><Bell size={16} color={t.faint} /></button>
-              <button aria-label="Refresh" style={{ background: "none", border: "none", cursor: "pointer", padding: 8 }}><RefreshCw size={14} color={t.faint} /></button>
-            </div>
-          </div>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: t.green, boxShadow: `0 0 8px ${t.green}`, alignSelf: navOpen ? "flex-start" : "center", marginLeft: navOpen ? 4 : 0 }} />
+          <motion.div
+            animate={{ scale: [1, 1.15, 1] }}
+            transition={{ duration: 2, repeat: Infinity }}
+            style={{ width: 8, height: 8, borderRadius: "50%", background: t.green, boxShadow: `0 0 8px ${t.green}` }}
+            title="Backend connected"
+          />
         </div>
       </motion.aside>
 
       {/* Main */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative", zIndex: 1, margin: "10px 10px 10px 0", gap: 10 }}>
 
-        {/* Stats bar */}
-        <div style={{ height: 48, borderRadius: 16, display: "flex", alignItems: "center", padding: "0 20px", gap: 24, ...glass(t) }}>
-          {STATS.map(({ label, value, color }) => (
-            <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 11, color: t.faint, fontFamily: FONT_BODY }}>{label}</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color, fontFamily: FONT_MONO }}>{value}</span>
-            </div>
-          ))}
-          <div style={{ flex: 1 }} />
-          {Object.entries(P).slice(0, 5).map(([key, p]) => (
-            <div key={key} title={p.label} style={{ width: 8, height: 8, borderRadius: "50%", background: p.color, boxShadow: `0 0 6px ${p.color}` }} />
-          ))}
-          <span style={{ fontSize: 11, color: t.faint, fontFamily: FONT_BODY }}>+2</span>
-        </div>
-
-        {/* Page header */}
-        <div style={{ padding: "14px 20px", borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "space-between", ...glass(t) }}>
+        {/* Page header — account-level controls live here (top-right), per convention */}
+        <div className="animated-gradient-frame animated-gradient-frame--nav" style={{ padding: "14px 20px", borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "space-between", ...glass(t) }}>
           <div>
             <h1 style={{ fontSize: 17, fontWeight: 800, color: t.ink, fontFamily: FONT_DISPLAY, textTransform: "capitalize" as const }}>
               {NAV.find(n => n.id === active)?.label}
             </h1>
             <p style={{ fontSize: 11, color: t.faint, marginTop: 2, fontFamily: FONT_BODY }}>SentryAI Demo Business</p>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, background: t.greenSoft, border: `1px solid ${t.green}30`, padding: "6px 12px", borderRadius: 20 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: t.green }} />
-            <span style={{ fontSize: 11, fontWeight: 700, color: t.green, fontFamily: FONT_BODY }}>Agent Active</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: t.greenSoft, border: `1px solid ${t.green}30`, padding: "6px 12px", borderRadius: 20 }}>
+              <motion.span
+                animate={{ scale: [1, 1.3, 1] }}
+                transition={{ duration: 1.8, repeat: Infinity }}
+                style={{ width: 6, height: 6, borderRadius: "50%", background: t.green }}
+              />
+              <span style={{ fontSize: 11, fontWeight: 700, color: t.green, fontFamily: FONT_BODY }}>Agent Active</span>
+            </div>
+            <button aria-label="Notifications" title="Notifications" style={{ background: t.bg, boxShadow: neu(t, false), border: "none", borderRadius: 10, cursor: "pointer", padding: 8, display: "flex" }}>
+              <Bell size={15} color={t.faint} />
+            </button>
+            <button aria-label="Refresh" title="Refresh" style={{ background: t.bg, boxShadow: neu(t, false), border: "none", borderRadius: 10, cursor: "pointer", padding: 8, display: "flex" }}>
+              <RefreshCw size={14} color={t.faint} />
+            </button>
+            <ThemeToggle />
           </div>
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, overflow: "hidden", borderRadius: 16 }}>
+        <div style={{ flex: 1, minHeight: 0, overflow: "hidden", borderRadius: 16, position: "relative" }}>
           <AnimatePresence mode="wait">
             <motion.div
               key={active}
@@ -969,8 +1330,8 @@ function DashboardShell() {
               transition={{ duration: reduce ? 0 : 0.2 }}
               style={
                 active === "inbox"
-                  ? { height: "100%", overflow: "hidden" }
-                  : { height: "100%", overflow: "auto", borderRadius: 18, padding: 24, ...glass(t) }
+                  ? { position: "absolute", inset: 0, overflow: "hidden" }
+                  : { position: "absolute", inset: 0, overflow: "auto", borderRadius: 18, padding: 24, ...glass(t) }
               }
             >
               {content[active]}
@@ -988,6 +1349,22 @@ export default function App() {
   const [mode, setMode] = useState<"light" | "dark">("light")
   const t = useMemo(() => THEMES[mode], [mode])
   const toggle = () => setMode(m => m === "light" ? "dark" : "light")
+
+  useEffect(() => {
+    import("./usePush").then(({ subscribeToPush }) => {
+      subscribeToPush("f5b6d17b-ce7c-4dfc-abc9-a19a6957fd4e")
+    })
+  }, [])
+
+  useEffect(() => {
+    function handleOnline() {
+      console.log("Back online, flushing queued messages")
+      flushQueue(import.meta.env.VITE_API_URL)
+    }
+    window.addEventListener("online", handleOnline)
+    flushQueue(import.meta.env.VITE_API_URL)
+    return () => window.removeEventListener("online", handleOnline)
+  }, [])
 
   return (
     <ThemeCtx.Provider value={{ t, mode, toggle }}>

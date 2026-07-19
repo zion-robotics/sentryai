@@ -333,5 +333,32 @@ router.get("/activity/:businessId", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+const { saveSubscription, sendPushToBusiness } = require("../services/push");
+
+router.get("/push/vapid-public-key", (req, res) => {
+  res.json({ key: process.env.VAPID_PUBLIC_KEY });
+});
+
+router.post("/push/subscribe", async (req, res) => {
+  try {
+    const { businessId, subscription } = req.body;
+    await saveSubscription(businessId, subscription);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/push/test/:businessId", async (req, res) => {
+  try {
+    const result = await sendPushToBusiness(req.params.businessId, {
+      title: "SentryAI Test",
+      body: "Push notifications are working correctly.",
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 module.exports = router;
