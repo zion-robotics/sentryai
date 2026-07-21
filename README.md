@@ -1,43 +1,78 @@
 # SentryAI
-### Never Miss A Sale.
 
-**AI Autopilot Agent for African SMEs** — Built for the Qwen Cloud Global AI Hackathon 2026 (Track 4: Autopilot Agent)
+Never miss a sale.
 
-Powered by Qwen Cloud · Deployed on Alibaba Cloud · Built by **Zion Robotics**
+SentryAI is an AI agent that reads and replies to customer messages automatically, across every platform a business uses, in whatever language the customer writes in. Built for African SMEs who lose sales every day simply because nobody replied in time.
 
-**Live:** [sentryai.name.ng](https://sentryai.name.ng)
+Live demo: https://sentryai.vercel.app
+Backend (Alibaba Cloud): https://sentryai.name.ng
+Built for the Qwen Cloud Global AI Hackathon 2026, Track 4, Autopilot Agent
 
----
+## The problem
 
-## What It Does
+Small business owners in Nigeria run their entire operation through their phone, replying to WhatsApp, Telegram, Instagram and email one message at a time. When a customer is not answered fast enough, they simply buy from someone else. Most lost sales are not caused by bad products, they are caused by slow or missed replies.
 
-SentryAI unifies every social messaging channel a small business uses — WhatsApp, Instagram, Facebook, Telegram, TikTok, Twitter/X, and Email — into a single AI-managed inbox. It reads and understands incoming messages (including Nigerian Pidgin and local context), responds automatically in a humanized tone, scores leads, generates payment links, follows up on stalled conversations, and reports results to the business owner every morning — all without the owner lifting a finger.
+## What SentryAI does
 
-## The Problem
-
-Nigeria alone has 39M+ small businesses. Their customers are scattered across 5+ platforms simultaneously — discovering products on TikTok, DMing on Instagram, following up on WhatsApp. One person cannot monitor all of it. Leads go cold. Sales are lost — not because of bad products, but because of missed messages and forgotten follow-ups.
-
-Existing tools don't solve this for the African market: Respond.io starts at $159/mo and doesn't understand Pidgin or local payment rails. Sendchamp and ManyChat lack real AI intelligence or unified inbox support.
-
-## The Solution
-
-SentryAI is an affordable, African-first AI business agent that actually understands how people communicate here — and runs the inbox 24/7.
-
-### Core Features
-
-| Feature | Description |
-|---|---|
-| **Unified Inbox** | All 7 platforms in one real-time feed |
-| **AI Understanding (Qwen)** | Reads, classifies, and responds to every message — not keyword matching |
-| **Humanized Responses** | Tone-matched replies, Pidgin-aware, never robotic |
-| **Voice Note Intelligence** | Transcribes and responds to voice notes via Qwen multimodal |
-| **Lead Scoring** | Every message auto-classified 🔴 Hot / 🟡 Warm / 🔵 Cold |
-| **Payment Automation** | Auto-generates Paystack/Flutterwave links on buying-intent detection |
-| **Auto Follow-Ups** | 24hr and 48hr sequences for warm/cold leads |
-| **Morning Business Report** | Daily summary of messages, leads, and revenue |
-| **Human Takeover Mode** | One tap for the owner to step in on any conversation |
-| **Multi-Business Support** | Run multiple businesses from one account |
-| **Broadcast Engine** | One campaign message across WhatsApp + Telegram + Email |
-| **Offline-Aware PWA** | Queues messages on poor connectivity, syncs on reconnect |
+- Reads incoming messages from WhatsApp, Telegram and Email
+- Classifies every message as a hot, warm, or cold lead using Qwen
+- Replies in the customer's own language and tone, including Nigerian Pidgin, Yoruba, Igbo and English
+- Detects buying intent and automatically generates a real Paystack payment link inside the conversation
+- Schedules automatic 24 and 48 hour follow ups for warm leads that go quiet
+- Sends the business owner a daily AI written morning report summarizing the previous day
+- Lets the business owner send a broadcast campaign to a segment of leads across every connected platform at once
+- Supports human takeover, the owner can jump into any conversation and the AI pauses automatically
+- Sends real push notifications the moment a hot lead comes in, even when the dashboard is closed
+- Works offline as an installable PWA, showing cached conversations when the connection drops
 
 ## Architecture
+
+Customer messages arrive on WhatsApp, Telegram or Email and hit a single webhook gateway built in Express. Every message is classified and answered by Qwen, then logged to Supabase. Lead scoring, the follow up scheduler, the Paystack integration and push notifications all run from the same backend process, deployed permanently on an Alibaba Cloud ECS instance with a real domain and SSL certificate. The dashboard is a React and TypeScript PWA, deployed separately on Vercel, and talks to the backend entirely over its public API.
+
+## Tech stack
+
+- Backend: Node.js, Express
+- Database: Supabase (PostgreSQL)
+- AI: Qwen Cloud API (qwen-plus)
+- Frontend: React, TypeScript, Tailwind, Framer Motion, VitePWA
+- Payments: Paystack
+- Messaging: Telegram Bot API, WhatsApp Business Cloud API (Meta), Gmail API
+- Push: web-push with VAPID
+- Deployment: Alibaba Cloud ECS (backend), Vercel (frontend), Nginx and Let's Encrypt for HTTPS
+
+## Repository structure
+
+```
+backend/    Express API, webhooks, AI logic, integrations
+frontend/   React dashboard (PWA)
+```
+
+## Running locally
+
+Backend
+
+```
+cd backend
+npm install
+node src/index.js
+```
+
+Requires a .env file with Supabase, Qwen, Telegram, Meta, Paystack, Gmail and VAPID credentials.
+
+Frontend
+
+```
+cd frontend
+npm install
+npm run dev
+```
+
+Requires VITE_API_URL pointing at a running backend instance.
+
+## Roadmap
+
+Instagram, Facebook, TikTok and Twitter/X integrations, Flutterwave as a second payment option, and a self serve product catalog builder for business owners, all using the same agent architecture already in place.
+
+## Team
+
+Built by Team Apex for the Qwen Cloud Global AI Hackathon 2026.
